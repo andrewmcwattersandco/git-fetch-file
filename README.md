@@ -15,13 +15,23 @@ It’s like a mini submodule, but for just the files you want.
 
 ## Installation
 
-Save the script as git-fetch-file somewhere on your PATH.
+### Option 1: Git Alias (Recommended)
+
+Save the script anywhere and set up a Git alias:
+
+```sh
+git config --global alias.fetch-file '!python3 /path/to/git-fetch-file.py'
+```
 
 Then run it like this:
 
 ```sh
 git fetch-file <subcommand> [args...]
 ```
+
+### Option 2: PATH Installation
+
+Save the script as `git-fetch-file` somewhere on your PATH.
 
 ## Commands
 
