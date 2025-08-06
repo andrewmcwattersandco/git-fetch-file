@@ -253,7 +253,7 @@ def pull_files(force=False, save=False):
         save_remote_files(config)
 
 
-def list_files():
+def status_files():
     """Print all files tracked in .git-remote-files."""
     config = load_remote_files()
     for section in config.sections():
@@ -315,8 +315,8 @@ def main():
         save_flag = "--save" in sys.argv
         pull_files(force=force_flag, save=save_flag)
 
-    elif cmd == "list":
-        list_files()
+    elif cmd == "status" or cmd == "list":
+        status_files()
 
     else:
         print(f"Unknown command: {cmd}")

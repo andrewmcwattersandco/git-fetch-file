@@ -40,13 +40,14 @@ Save the script as `git-fetch-file` somewhere on your PATH.
 Track a file (or glob) from a remote Git repository.
 
 ```sh
-git fetch-file add <repo> <path> [--commit <commit>] [--glob] [--comment <text>]
+git fetch-file add <repo> <path> [--commit <commit>] [--glob] [--no-glob] [--comment <text>]
 ```
 
 - repo: The URL or path to the remote Git repo
 - path: Path (or glob if --glob is used) to the file(s) in the remote repo
 - --commit: Optional commit, branch, or tag to track (default: HEAD)
 - --glob: If specified, interprets path as a glob pattern
+- --no-glob: If specified, treats path as literal filename (overrides auto-detection)
 - --comment: Add a descriptive comment to the manifest
 
 ### pull
@@ -60,12 +61,13 @@ git fetch-file pull [--force] [--save]
 - --force: Overwrite local changes to files
 - --save: Update the commit in .git-remote-files if you're tracking a branch or tag that moved
 
-### list
+### status
 
 View all tracked files.
 
 ```sh
-git fetch-file list
+git fetch-file status
+git fetch-file list    # alias for status
 ```
 
 ## .git-remote-files
