@@ -11,10 +11,10 @@ import configparser
 import subprocess
 import sys
 import os
+import shutil
 from pathlib import Path
 import glob as glob_module
 import hashlib
-import shlex
 
 REMOTE_FILE_MANIFEST = ".git-remote-files"
 CACHE_DIR = ".git/fetch-file-cache"
@@ -43,7 +43,7 @@ def hash_file(path):
         return hashlib.sha1(f.read()).hexdigest()
 
 
-def add_file(repo, path, commit=None, glob=False, comment=""):
+def add_file(repo, path, commit=None, glob=None, comment=""):
     """
     Add a file or glob from a remote repository to .git-remote-files.
 
@@ -51,7 +51,7 @@ def add_file(repo, path, commit=None, glob=False, comment=""):
         repo (str): Remote repository URL.
         path (str): File path or glob pattern.
         commit (str, optional): Commit, branch, or tag. Defaults to HEAD.
-        glob (bool): Whether path is a glob pattern.
+        glob (bool, optional): Whether path is a glob pattern. Auto-detected if None.
         comment (str): Optional comment describing the file.
     """
     config = load_remote_files()
@@ -60,11 +60,20 @@ def add_file(repo, path, commit=None, glob=False, comment=""):
         config.add_section(section)
     config[section]["repo"] = repo
     config[section]["commit"] = commit if commit else "HEAD"
-    config[section]["glob"] = str(glob).lower()
+    
+    # Only set glob property if explicitly specified
+    if glob is not None:
+        config[section]["glob"] = str(glob).lower()
+    else:
+        # Auto-detect for display purposes only
+        glob = is_glob_pattern(path)
+    
     if comment:
         config[section]["comment"] = comment
     save_remote_files(config)
-    print(f"Added {path} from {repo} (commit: {config[section]['commit']})")
+    
+    pattern_type = "glob pattern" if glob else "file"
+    print(f"Added {pattern_type} {path} from {repo} (commit: {config[section]['commit']})")
 
 
 def fetch_file(repo, path, commit, is_glob=False, force=False):
@@ -90,18 +99,45 @@ def fetch_file(repo, path, commit, is_glob=False, force=False):
     try:
         files = [path]
         if is_glob:
+            # Get list of files from remote repository
             result = subprocess.run(
-                ["git", "ls-tree", "-r", "--name-only", commit],
+                ["git", "ls-remote", "--heads", "--tags", repo],
                 capture_output=True,
                 text=True
             )
             if result.returncode != 0:
-                raise RuntimeError(result.stderr)
-            files = [f for f in result.stdout.splitlines() if glob_module.fnmatch.fnmatch(f, path)]
+                raise RuntimeError(f"Failed to connect to repository: {result.stderr}")
+            
+            # Clone the repository to a temporary location to get file listing
+            clone_dir = Path(TEMP_DIR) / "clone"
+            clone_dir.mkdir(parents=True, exist_ok=True)
+            
+            try:
+                subprocess.run(
+                    ["git", "clone", "--depth", "1", "--branch", commit, repo, str(clone_dir)],
+                    capture_output=True,
+                    check=True
+                )
+                
+                result = subprocess.run(
+                    ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+                    cwd=clone_dir,
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(result.stderr)
+                files = [f for f in result.stdout.splitlines() if glob_module.fnmatch.fnmatch(f, path)]
+            finally:
+                # Clean up clone directory
+                if clone_dir.exists():
+                    shutil.rmtree(clone_dir)
 
         for f in files:
-            target_path = Path(f)
-            cache_file = Path(CACHE_DIR) / f.replace("/", "_")
+            # Ensure we're working with relative paths to avoid system directory conflicts
+            relative_path = f.lstrip('/')
+            target_path = Path(relative_path)
+            cache_file = Path(CACHE_DIR) / relative_path.replace("/", "_")
             local_hash = hash_file(target_path)
             last_hash = None
             if cache_file.exists():
@@ -109,27 +145,67 @@ def fetch_file(repo, path, commit, is_glob=False, force=False):
                     last_hash = cf.read().strip()
 
             if local_hash and local_hash != last_hash and not force:
-                print(f"Skipping {f}: local changes detected. Use --force to overwrite.")
+                print(f"Skipping {relative_path}: local changes detected. Use --force to overwrite.")
                 continue
 
-            cmd = f'git archive --remote={shlex.quote(repo)} {shlex.quote(commit)} {shlex.quote(f)} | tar -x -C {shlex.quote(TEMP_DIR)}'
-            subprocess.run(cmd, shell=True, check=True)
+            # Clone the repository to fetch the file
+            clone_dir = Path(TEMP_DIR) / "fetch_clone"
+            clone_dir.mkdir(parents=True, exist_ok=True)
+            
+            try:
+                # Clone the specific commit
+                subprocess.run(
+                    ["git", "clone", "--depth", "1", "--branch", commit, repo, str(clone_dir)],
+                    capture_output=True,
+                    check=True
+                )
+                
+                # Get the actual commit hash
+                result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=clone_dir,
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                fetched_commit = result.stdout.strip()
+                
+                # Copy the file from clone to target location
+                source_file = clone_dir / f
+                if source_file.exists():
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_file, target_path)
+                    
+                    new_hash = hash_file(target_path)
+                    cache_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(cache_file, "w") as cf:
+                        cf.write(new_hash)
 
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            for file_in_temp in temp_dir.glob("*"):
-                file_in_temp.rename(target_path)
-
-            new_hash = hash_file(target_path)
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_file, "w") as cf:
-                cf.write(new_hash)
-
-            print(f"Fetched {f} at {commit}")
+                    print(f"Fetched {relative_path} at {commit}")
+                else:
+                    print(f"Warning: File {f} not found in repository")
+                    
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Failed to clone repository for {f}: {e}")
+                continue
+            finally:
+                # Clean up clone directory
+                if clone_dir.exists():
+                    shutil.rmtree(clone_dir)
 
     finally:
-        for f in temp_dir.glob("*"):
-            f.unlink()
-        temp_dir.rmdir()
+        # Clean up temp directory contents
+        if temp_dir.exists():
+            for item in temp_dir.iterdir():
+                if item.is_file():
+                    item.unlink()
+                elif item.is_dir():
+                    shutil.rmtree(item)
+            # Only remove temp_dir if it's empty
+            try:
+                temp_dir.rmdir()
+            except OSError:
+                pass  # Directory not empty, that's okay
 
     return fetched_commit
 
@@ -147,10 +223,14 @@ def pull_files(force=False, save=False):
         path = section.split('"')[1]
         repo = config[section]["repo"]
         commit = config[section].get("commit", "HEAD")
-        is_glob = config[section].getboolean("glob", False)
+        # Check if glob was explicitly set, otherwise auto-detect
+        if "glob" in config[section]:
+            is_glob = config[section].getboolean("glob", False)
+        else:
+            is_glob = is_glob_pattern(path)
         fetched_commit = fetch_file(repo, path, commit, is_glob, force=force)
 
-        if save and commit not in ("HEAD", commit[:7]):
+        if save and commit != "HEAD" and not commit.startswith(fetched_commit[:7]):
             config[section]["commit"] = fetched_commit
     if save:
         save_remote_files(config)
@@ -163,8 +243,21 @@ def list_files():
         path = section.split('"')[1]
         repo = config[section]["repo"]
         commit = config[section].get("commit", "HEAD")
-        is_glob = config[section].getboolean("glob", False)
-        print(f"{path} (repo: {repo}, commit: {commit}, glob: {is_glob})")
+        # Check if glob was explicitly set, otherwise auto-detect
+        if "glob" in config[section]:
+            is_glob = config[section].getboolean("glob", False)
+        else:
+            is_glob = is_glob_pattern(path)
+        
+        # Show if it's a glob pattern
+        pattern_indicator = " (glob)" if is_glob else ""
+        print(f"{path}{pattern_indicator} (repo: {repo}, commit: {commit})")
+
+
+def is_glob_pattern(path):
+    """Check if a path contains glob pattern characters."""
+    glob_chars = ['*', '?', '[', ']', '{', '}']
+    return any(char in path for char in glob_chars)
 
 
 def main():
@@ -177,12 +270,12 @@ def main():
 
     if cmd == "add":
         if len(sys.argv) < 4:
-            print("Usage: git fetch-file add <repo> <path> [--commit <commit>] [--glob] [--comment <text>]")
+            print("Usage: git fetch-file add <repo> <path> [--commit <commit>] [--glob] [--no-glob] [--comment <text>]")
             sys.exit(1)
         repo = sys.argv[2]
         path = sys.argv[3]
         commit = None
-        glob_flag = False
+        glob_flag = None  # None means auto-detect
         comment = ""
         args = sys.argv[4:]
         i = 0
@@ -192,6 +285,8 @@ def main():
                 commit = args[i]
             elif args[i] == "--glob":
                 glob_flag = True
+            elif args[i] == "--no-glob":
+                glob_flag = False
             elif args[i] == "--comment":
                 i += 1
                 comment = args[i]
