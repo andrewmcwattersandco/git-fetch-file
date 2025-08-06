@@ -61,7 +61,8 @@ def add_file(repo, path, commit=None, glob=False, comment=""):
     config[section]["repo"] = repo
     config[section]["commit"] = commit if commit else "HEAD"
     config[section]["glob"] = str(glob).lower()
-    config[section]["comment"] = comment
+    if comment:
+        config[section]["comment"] = comment
     save_remote_files(config)
     print(f"Added {path} from {repo} (commit: {config[section]['commit']})")
 
