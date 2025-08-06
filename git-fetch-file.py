@@ -47,7 +47,7 @@ def hash_file(path):
         return hashlib.sha1(f.read()).hexdigest()
 
 
-def add_file(repo, path, commit=None, glob=None, comment=""):
+def add_file(repo, path, commit=None, glob=None, comment="", target_dir=None):
     """
     Add a file or glob from a remote repository to .git-remote-files.
 
@@ -57,6 +57,7 @@ def add_file(repo, path, commit=None, glob=None, comment=""):
         commit (str, optional): Commit, branch, or tag. Defaults to HEAD.
         glob (bool, optional): Whether path is a glob pattern. Auto-detected if None.
         comment (str): Optional comment describing the file.
+        target_dir (str, optional): Target directory to place the file. Defaults to same path.
     """
     # Normalize path by removing leading slash
     path = path.lstrip('/')
@@ -75,15 +76,21 @@ def add_file(repo, path, commit=None, glob=None, comment=""):
         # Auto-detect for display purposes only
         glob = is_glob_pattern(path)
     
+    if target_dir:
+        # Normalize target directory
+        target_dir = target_dir.rstrip('/')
+        config[section]["target"] = target_dir
+    
     if comment:
         config[section]["comment"] = comment
     save_remote_files(config)
     
     pattern_type = "glob pattern" if glob else "file"
-    print(f"Added {pattern_type} {path} from {repo} (commit: {config[section]['commit']})")
+    target_info = f" -> {target_dir}" if target_dir else ""
+    print(f"Added {pattern_type} {path}{target_info} from {repo} (commit: {config[section]['commit']})")
 
 
-def fetch_file(repo, path, commit, is_glob=False, force=False):
+def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None):
     """
     Fetch a single file or glob from a remote repository at a specific commit.
 
@@ -93,6 +100,7 @@ def fetch_file(repo, path, commit, is_glob=False, force=False):
         commit (str): Commit, branch, or tag.
         is_glob (bool): Whether path is a glob pattern.
         force (bool): Whether to overwrite local changes.
+        target_dir (str, optional): Target directory to place the file.
 
     Returns:
         str: The commit fetched.
@@ -148,8 +156,19 @@ def fetch_file(repo, path, commit, is_glob=False, force=False):
         for f in files:
             # Ensure we're working with relative paths to avoid system directory conflicts
             relative_path = f.lstrip('/')
-            target_path = Path(relative_path)
-            cache_file = Path(CACHE_DIR) / relative_path.replace("/", "_")
+            
+            # Determine target path based on target_dir
+            if target_dir:
+                # Place file in target directory, preserving filename
+                filename = Path(relative_path).name
+                target_path = Path(target_dir) / filename
+                cache_key = f"{target_dir}_{filename}".replace("/", "_")
+            else:
+                # Use original path structure
+                target_path = Path(relative_path)
+                cache_key = relative_path.replace("/", "_")
+            
+            cache_file = Path(CACHE_DIR) / cache_key
             local_hash = hash_file(target_path)
             last_hash = None
             if cache_file.exists():
@@ -198,7 +217,7 @@ def fetch_file(repo, path, commit, is_glob=False, force=False):
                     with open(cache_file, "w") as cf:
                         cf.write(new_hash)
 
-                    print(f"Fetched {relative_path} at {commit}")
+                    print(f"Fetched {relative_path} -> {target_path} at {commit}")
                 else:
                     print(f"Warning: File {f} not found in repository")
                     
@@ -240,12 +259,13 @@ def pull_files(force=False, save=False):
         path = section.split('"')[1]
         repo = config[section]["repo"]
         commit = config[section].get("commit", "HEAD")
+        target_dir = config[section].get("target", None)
         # Check if glob was explicitly set, otherwise auto-detect
         if "glob" in config[section]:
             is_glob = config[section].getboolean("glob", False)
         else:
             is_glob = is_glob_pattern(path)
-        fetched_commit = fetch_file(repo, path, commit, is_glob, force=force)
+        fetched_commit = fetch_file(repo, path, commit, is_glob, force=force, target_dir=target_dir)
 
         if save and commit != "HEAD" and not commit.startswith(fetched_commit[:7]):
             config[section]["commit"] = fetched_commit
@@ -260,6 +280,7 @@ def status_files():
         path = section.split('"')[1]
         repo = config[section]["repo"]
         commit = config[section].get("commit", "HEAD")
+        target_dir = config[section].get("target", None)
         # Check if glob was explicitly set, otherwise auto-detect
         if "glob" in config[section]:
             is_glob = config[section].getboolean("glob", False)
@@ -268,7 +289,8 @@ def status_files():
         
         # Show if it's a glob pattern
         pattern_indicator = " (glob)" if is_glob else ""
-        print(f"{path}{pattern_indicator} (repo: {repo}, commit: {commit})")
+        target_indicator = f" -> {target_dir}" if target_dir else ""
+        print(f"{path}{pattern_indicator}{target_indicator} (repo: {repo}, commit: {commit})")
 
 
 def is_glob_pattern(path):
@@ -287,14 +309,22 @@ def main():
 
     if cmd == "add":
         if len(sys.argv) < 4:
-            print("Usage: git fetch-file add <repo> <path> [--commit <commit>] [--glob] [--no-glob] [--comment <text>]")
+            print("Usage: git fetch-file add <repo> <path> [target_dir] [--commit <commit>] [--glob] [--no-glob] [--comment <text>]")
             sys.exit(1)
         repo = sys.argv[2]
         path = sys.argv[3]
+        
+        # Check if the 4th argument is a target directory (doesn't start with --)
+        target_dir = None
+        args_start = 4
+        if len(sys.argv) > 4 and not sys.argv[4].startswith("--"):
+            target_dir = sys.argv[4]
+            args_start = 5
+        
         commit = None
         glob_flag = None  # None means auto-detect
         comment = ""
-        args = sys.argv[4:]
+        args = sys.argv[args_start:]
         i = 0
         while i < len(args):
             if args[i] == "--commit":
@@ -308,7 +338,7 @@ def main():
                 i += 1
                 comment = args[i]
             i += 1
-        add_file(repo, path, commit, glob_flag, comment)
+        add_file(repo, path, commit, glob_flag, comment, target_dir)
 
     elif cmd == "pull":
         force_flag = "--force" in sys.argv

@@ -40,11 +40,12 @@ Save the script as `git-fetch-file` somewhere on your PATH.
 Track a file (or glob) from a remote Git repository.
 
 ```sh
-git fetch-file add <repo> <path> [--commit <commit>] [--glob] [--no-glob] [--comment <text>]
+git fetch-file add <repo> <path> [target_dir] [--commit <commit>] [--glob] [--no-glob] [--comment <text>]
 ```
 
 - repo: The URL or path to the remote Git repo
 - path: Path (or glob if --glob is used) to the file(s) in the remote repo
+- target_dir: Optional target directory to place the file (preserves filename)
 - --commit: Optional commit, branch, or tag to track (default: HEAD)
 - --glob: If specified, interprets path as a glob pattern
 - --no-glob: If specified, treats path as literal filename (overrides auto-detection)
@@ -78,7 +79,7 @@ Each tracked file is recorded in .git-remote-files (INI format). Example entry:
 [file "lib/util.py"]
 repo = https://github.com/example/tools
 commit = a1b2c3d
-glob = false
+target = vendor
 comment = Common utility function
 ```
 
@@ -89,6 +90,11 @@ This file should be committed to your repository.
 ### Track a remote file
 ```sh
 git fetch-file add https://github.com/user/project utils/logger.py --commit main --comment "Logging helper"
+```
+
+### Track a file into a specific directory
+```sh
+git fetch-file add https://github.com/user/project utils/logger.py vendor --commit main --comment "Third-party logging helper"
 ```
 
 ### Pull it into your repo
