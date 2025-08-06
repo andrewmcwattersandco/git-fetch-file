@@ -31,8 +31,12 @@ def load_remote_files():
 
 def save_remote_files(config):
     """Write the .git-remote-files manifest to disk."""
+    from io import StringIO
+    output = StringIO()
+    config.write(output)
+    content = output.getvalue().rstrip() + '\n'
     with open(REMOTE_FILE_MANIFEST, "w") as f:
-        config.write(f)
+        f.write(content)
 
 
 def hash_file(path):
@@ -113,8 +117,13 @@ def fetch_file(repo, path, commit, is_glob=False, force=False):
             clone_dir.mkdir(parents=True, exist_ok=True)
             
             try:
+                clone_cmd = ["git", "clone", "--depth", "1"]
+                if commit != "HEAD":
+                    clone_cmd.extend(["--branch", commit])
+                clone_cmd.extend([repo, str(clone_dir)])
+                
                 subprocess.run(
-                    ["git", "clone", "--depth", "1", "--branch", commit, repo, str(clone_dir)],
+                    clone_cmd,
                     capture_output=True,
                     check=True
                 )
@@ -154,8 +163,13 @@ def fetch_file(repo, path, commit, is_glob=False, force=False):
             
             try:
                 # Clone the specific commit
+                clone_cmd = ["git", "clone", "--depth", "1"]
+                if commit != "HEAD":
+                    clone_cmd.extend(["--branch", commit])
+                clone_cmd.extend([repo, str(clone_dir)])
+                
                 subprocess.run(
-                    ["git", "clone", "--depth", "1", "--branch", commit, repo, str(clone_dir)],
+                    clone_cmd,
                     capture_output=True,
                     check=True
                 )
