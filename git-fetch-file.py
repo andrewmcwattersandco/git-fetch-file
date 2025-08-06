@@ -58,6 +58,9 @@ def add_file(repo, path, commit=None, glob=None, comment=""):
         glob (bool, optional): Whether path is a glob pattern. Auto-detected if None.
         comment (str): Optional comment describing the file.
     """
+    # Normalize path by removing leading slash
+    path = path.lstrip('/')
+    
     config = load_remote_files()
     section = f'file "{path}"'
     if section not in config.sections():
