@@ -47,7 +47,7 @@ def hash_file(path):
         return hashlib.sha1(f.read()).hexdigest()
 
 
-def add_file(repo, path, commit=None, glob=None, comment="", target_dir=None):
+def add_file(repo, path, commit=None, glob=None, comment="", target_dir=None, dry_run=False):
     """
     Add a file or glob from a remote repository to .git-remote-files.
 
@@ -58,12 +58,44 @@ def add_file(repo, path, commit=None, glob=None, comment="", target_dir=None):
         glob (bool, optional): Whether path is a glob pattern. Auto-detected if None.
         comment (str): Optional comment describing the file.
         target_dir (str, optional): Target directory to place the file. Defaults to same path.
+        dry_run (bool): If True, only show what would be done without executing.
     """
     # Normalize path by removing leading slash
     path = path.lstrip('/')
     
+    if dry_run:
+        print(f"Would validate repository access: {repo}")
+        # In dry-run mode, try to validate the repository exists
+        try:
+            result = subprocess.run(
+                ["git", "ls-remote", "--heads", "--tags", repo],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0:
+                print(f"error: Cannot access repository: {result.stderr.strip()}")
+                return
+            else:
+                print("Repository access confirmed")
+        except subprocess.TimeoutExpired:
+            print("warning: Repository validation timed out")
+        except Exception as e:
+            print(f"warning: Could not validate repository: {e}")
+    
     config = load_remote_files()
     section = f'file "{path}"'
+    
+    if dry_run:
+        action = "update" if section in config.sections() else "add"
+        pattern_type = "glob pattern" if (glob if glob is not None else is_glob_pattern(path)) else "file"
+        target_info = f" -> {target_dir}" if target_dir else ""
+        commit_info = commit if commit else "HEAD"
+        print(f"Would {action} {pattern_type} {path}{target_info} from {repo} (commit: {commit_info})")
+        if comment:
+            print(f"With comment: {comment}")
+        return
+    
     if section not in config.sections():
         config.add_section(section)
     config[section]["repo"] = repo
@@ -90,7 +122,7 @@ def add_file(repo, path, commit=None, glob=None, comment="", target_dir=None):
     print(f"Added {pattern_type} {path}{target_info} from {repo} (commit: {config[section]['commit']})")
 
 
-def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None):
+def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, dry_run=False):
     """
     Fetch a single file or glob from a remote repository at a specific commit.
 
@@ -101,15 +133,20 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None):
         is_glob (bool): Whether path is a glob pattern.
         force (bool): Whether to overwrite local changes.
         target_dir (str, optional): Target directory to place the file.
+        dry_run (bool): If True, only show what would be done without executing.
 
     Returns:
-        str: The commit fetched.
+        str: The commit fetched (or would be fetched in dry-run mode).
     """
     temp_dir = Path(TEMP_DIR)
     temp_dir.mkdir(exist_ok=True)
     Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
 
     fetched_commit = commit
+
+    # In dry-run mode, we skip most of the actual work since pull_files handles the summary
+    if dry_run:
+        return fetched_commit
 
     try:
         files = [path]
@@ -121,7 +158,8 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None):
                 text=True
             )
             if result.returncode != 0:
-                raise RuntimeError(f"Failed to connect to repository: {result.stderr}")
+                error_msg = f"Failed to connect to repository: {result.stderr}"
+                raise RuntimeError(error_msg)
             
             # Clone the repository to a temporary location to get file listing
             clone_dir = Path(TEMP_DIR) / "clone"
@@ -246,15 +284,29 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None):
     return fetched_commit
 
 
-def pull_files(force=False, save=False):
+def pull_files(force=False, save=False, dry_run=False):
     """
     Pull all tracked files from .git-remote-files.
 
     Args:
         force (bool): Overwrite local changes if True.
         save (bool): Update .git-remote-files commit entries for branch-based files.
+        dry_run (bool): If True, only show what would be done without executing.
     """
     config = load_remote_files()
+    
+    if not config.sections():
+        if dry_run:
+            print("No remote files tracked.")
+        return
+    
+    # Collect results for organized dry-run output
+    if dry_run:
+        would_fetch = []
+        would_skip = []
+        up_to_date = []
+        errors = []
+    
     for section in config.sections():
         path = section.split('"')[1]
         repo = config[section]["repo"]
@@ -265,11 +317,79 @@ def pull_files(force=False, save=False):
             is_glob = config[section].getboolean("glob", False)
         else:
             is_glob = is_glob_pattern(path)
-        fetched_commit = fetch_file(repo, path, commit, is_glob, force=force, target_dir=target_dir)
+            
+        if dry_run:
+            # Check if file would be updated by examining local state
+            try:
+                # Determine target path based on target_dir
+                if target_dir:
+                    filename = Path(path).name
+                    target_path = Path(target_dir) / filename
+                    cache_key = f"{target_dir}_{filename}".replace("/", "_")
+                else:
+                    target_path = Path(path)
+                    cache_key = path.replace("/", "_")
+                
+                cache_file = Path(CACHE_DIR) / cache_key
+                local_hash = hash_file(target_path)
+                last_hash = None
+                if cache_file.exists():
+                    with open(cache_file) as cf:
+                        last_hash = cf.read().strip()
+                
+                # Simulate what would happen
+                if local_hash and local_hash != last_hash and not force:
+                    would_skip.append(f"{path} from {repo}")
+                elif local_hash == last_hash and commit != "HEAD":
+                    # File exists and hash matches - up to date
+                    up_to_date.append(f"{path} from {repo} ({commit[:7] if len(commit) > 7 else commit})")
+                else:
+                    # Would fetch - show commit change if applicable
+                    commit_info = commit
+                    if save and commit != "HEAD":
+                        commit_info = f"{commit[:7] if len(commit) > 7 else commit} -> [new commit]"
+                    elif commit == "HEAD":
+                        commit_info = "HEAD -> [latest]"
+                    would_fetch.append(f"{path} from {repo} ({commit_info})")
+                    
+            except Exception as e:
+                errors.append(f"{path} from {repo}: {str(e)}")
+        else:
+            fetched_commit = fetch_file(repo, path, commit, is_glob, force=force, target_dir=target_dir, dry_run=dry_run)
 
-        if save and commit != "HEAD" and not commit.startswith(fetched_commit[:7]):
-            config[section]["commit"] = fetched_commit
-    if save:
+            if save and commit != "HEAD" and not commit.startswith(fetched_commit[:7]):
+                config[section]["commit"] = fetched_commit
+    
+    if dry_run:
+        # Print organized output
+        if would_fetch:
+            print("Would fetch:")
+            for item in would_fetch:
+                print(f"  {item}")
+            print()
+        
+        if would_skip:
+            print("Would skip (local changes):")
+            for item in would_skip:
+                print(f"  {item} (use --force to overwrite)")
+            print()
+        
+        if up_to_date:
+            print("Up to date:")
+            for item in up_to_date:
+                print(f"  {item}")
+            print()
+        
+        if errors:
+            print("Errors:")
+            for item in errors:
+                print(f"  {item}")
+            print()
+        
+        if not (would_fetch or would_skip or up_to_date or errors):
+            print("No changes needed.")
+    
+    if save and not dry_run:
         save_remote_files(config)
 
 
@@ -327,13 +447,23 @@ def main():
     """Command-line interface for git-fetch-file."""
     if len(sys.argv) < 2:
         print("Usage: git fetch-file <command> [args...]")
+        print("Commands:")
+        print("  add <repo> <path> [target_dir] [options]  Add a file or glob to track")
+        print("  pull [options]                           Pull all tracked files")
+        print("  list                                     List all tracked files")
+        print("  status                                   Alias for list")
+        print("")
+        print("Options:")
+        print("  --dry-run                               Show what would be done without executing")
+        print("  --force                                 Overwrite local changes (pull only)")
+        print("  --save                                  Update commit hashes (pull only)")
         sys.exit(1)
 
     cmd = sys.argv[1]
 
     if cmd == "add":
         if len(sys.argv) < 4:
-            print("Usage: git fetch-file add <repo> <path> [target_dir] [--commit <commit>] [--glob] [--no-glob] [--comment <text>]")
+            print("Usage: git fetch-file add <repo> <path> [target_dir] [--commit <commit>] [--glob] [--no-glob] [--comment <text>] [--dry-run]")
             sys.exit(1)
         repo = sys.argv[2]
         path = sys.argv[3]
@@ -348,6 +478,7 @@ def main():
         commit = None
         glob_flag = None  # None means auto-detect
         comment = ""
+        dry_run = False
         args = sys.argv[args_start:]
         i = 0
         while i < len(args):
@@ -361,13 +492,16 @@ def main():
             elif args[i] == "--comment":
                 i += 1
                 comment = args[i]
+            elif args[i] == "--dry-run":
+                dry_run = True
             i += 1
-        add_file(repo, path, commit, glob_flag, comment, target_dir)
+        add_file(repo, path, commit, glob_flag, comment, target_dir, dry_run)
 
     elif cmd == "pull":
         force_flag = "--force" in sys.argv
         save_flag = "--save" in sys.argv
-        pull_files(force=force_flag, save=save_flag)
+        dry_run_flag = "--dry-run" in sys.argv
+        pull_files(force=force_flag, save=save_flag, dry_run=dry_run_flag)
 
     elif cmd == "status" or cmd == "list":
         status_files()
