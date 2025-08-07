@@ -81,6 +81,8 @@ git fetch-file pull [<options>]
 
 Fetches all files tracked in `.git-remote-files` from their source repositories. Files are downloaded to their configured target locations and local changes are detected automatically.
 
+By default, changes are not automatically committed (following git's convention). Use `--commit` for auto-commit with a git-style default message, `-m`, `--edit`, or other commit flags to enable auto-commit after pulling files.
+
 **OPTIONS**
 
 `--force`
@@ -94,6 +96,18 @@ Fetches all files tracked in `.git-remote-files` from their source repositories.
 
 `--jobs=<n>`
 : Number of parallel jobs for fetching. Default is 4, like git's default parallelism.
+
+`--commit`
+: Auto-commit changes with a git-style default message that includes information about what was fetched (e.g., "Update README.md", "Update utils.js and config.json", "Update 5 files in src/").
+
+`-m <message>`, `--message=<message>`
+: Auto-commit changes with the specified commit message.
+
+`--edit`
+: Open editor to write commit message for auto-commit.
+
+`--no-commit`
+: Don't auto-commit changes, even if other commit flags are specified.
 
 ### git fetch-file status
 
@@ -212,6 +226,28 @@ git fetch-file pull --jobs=8
 
 # Conservative single-threaded mode
 git fetch-file pull --jobs=1
+```
+
+#### Auto-commit changes
+```sh
+# Pull and auto-commit with informative git-style default messages:
+# - Single file: "Update README.md" 
+# - Two files: "Update utils.js and config.json"
+# - Multiple files: "Update 5 files in src/"
+# - With commit info: "Update package.json to a1b2c3d"
+git fetch-file pull --commit
+
+# Pull and commit with a custom message
+git fetch-file pull -m "Update vendor dependencies"
+
+# Pull and open editor for commit message
+git fetch-file pull --edit
+
+# Pull with pre-filled commit message in editor
+git fetch-file pull -m "Update dependencies" --edit
+
+# Pull without committing (default behavior)
+git fetch-file pull --no-commit
 ```
 
 #### Track glob patterns

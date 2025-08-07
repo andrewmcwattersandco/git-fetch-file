@@ -16,6 +16,7 @@ from pathlib import Path
 import glob as glob_module
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import tempfile
 
 REMOTE_FILE_MANIFEST = ".git-remote-files"
 CACHE_DIR = ".git/fetch-file-cache"
@@ -285,7 +286,7 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
     return fetched_commit
 
 
-def pull_files(force=False, save=False, dry_run=False, jobs=4):
+def pull_files(force=False, save=False, dry_run=False, jobs=4, commit_message=None, edit=False, no_commit=False, auto_commit=False):
     """
     Pull all tracked files from .git-remote-files.
 
@@ -294,6 +295,10 @@ def pull_files(force=False, save=False, dry_run=False, jobs=4):
         save (bool): Update .git-remote-files commit entries for branch-based files.
         dry_run (bool): If True, only show what would be done without executing.
         jobs (int): Number of concurrent jobs for fetching files.
+        commit_message (str, optional): Custom commit message for auto-commit.
+        edit (bool): Whether to open editor for commit message.
+        no_commit (bool): If True, don't auto-commit changes.
+        auto_commit (bool): If True, auto-commit with default message.
     """
     config = load_remote_files()
     
@@ -456,6 +461,20 @@ def pull_files(force=False, save=False, dry_run=False, jobs=4):
         
         if updated:
             save_remote_files(config)
+    
+    # Auto-commit changes if requested (and not in dry-run mode)
+    if not dry_run:
+        # Check if we should commit
+        should_commit = not no_commit and (commit_message is not None or edit or auto_commit)
+        
+        # If no explicit commit flags were used, default to no commit (like git merge)
+        if not should_commit and commit_message is None and not edit and not auto_commit and not no_commit:
+            should_commit = False
+        
+        # Commit if requested
+        if should_commit:
+            # Pass full results for informative commit message generation
+            commit_changes(commit_message=commit_message, edit=edit, no_commit=no_commit, file_results=results)
 
 
 def status_files():
@@ -508,6 +527,192 @@ def is_glob_pattern(path):
     return any(char in path for char in glob_chars)
 
 
+def is_git_repository():
+    """Check if we're in a git repository."""
+    try:
+        subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def has_git_changes():
+    """Check if there are any changes staged or unstaged in the git repository."""
+    try:
+        # Check for staged changes
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        if result.stdout.strip():
+            return True
+        
+        # Check for unstaged changes to tracked files
+        result = subprocess.run(
+            ["git", "diff", "--name-only"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        if result.stdout.strip():
+            return True
+        
+        # Check for untracked files that might have been fetched
+        result = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        untracked = result.stdout.strip().split('\n') if result.stdout.strip() else []
+        
+        # Filter to only check files that might be from git-fetch-file
+        # (this is a heuristic - we assume newly fetched files are untracked)
+        return len(untracked) > 0
+        
+    except subprocess.CalledProcessError:
+        return False
+
+
+def commit_changes(commit_message=None, edit=False, no_commit=False, file_results=None):
+    """
+    Commit changes to git if there are any.
+    
+    Args:
+        commit_message (str, optional): Custom commit message. If None, uses default.
+        edit (bool): Whether to open editor for commit message.
+        no_commit (bool): If True, don't commit (useful for overriding default behavior).
+        file_results (list, optional): List of file fetch results for informative default message.
+    
+    Returns:
+        bool: True if commit was made, False otherwise.
+    """
+    if no_commit:
+        return False
+    
+    if not is_git_repository():
+        print("warning: Not in a git repository, skipping commit")
+        return False
+    
+    if not has_git_changes():
+        return False
+    
+    try:
+        # Stage all changes (including new files)
+        subprocess.run(["git", "add", "."], check=True)
+        
+        # Prepare commit command
+        commit_cmd = ["git", "commit"]
+        
+        if edit:
+            # Use editor for commit message
+            if commit_message:
+                # Pre-populate editor with provided message
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                    f.write(commit_message)
+                    temp_file = f.name
+                try:
+                    commit_cmd.extend(["-t", temp_file])
+                    subprocess.run(commit_cmd, check=True)
+                finally:
+                    os.unlink(temp_file)
+            else:
+                # Just open editor
+                subprocess.run(commit_cmd, check=True)
+        else:
+            # Use provided message or generate git-style informative default
+            if not commit_message:
+                commit_message = generate_default_commit_message(file_results)
+            commit_cmd.extend(["-m", commit_message])
+            subprocess.run(commit_cmd, check=True)
+        
+        print(f"Committed changes: {commit_message if not edit else '[via editor]'}")
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        print(f"warning: Failed to commit changes: {e}")
+        return False
+
+
+def generate_default_commit_message(file_results):
+    """
+    Generate a git-style informative default commit message based on what was fetched.
+    
+    Args:
+        file_results (list): List of file fetch results.
+    
+    Returns:
+        str: Generated commit message.
+    """
+    if not file_results:
+        return "Update remote files"
+    
+    successful_results = [r for r in file_results if r['success']]
+    
+    if not successful_results:
+        return "Update remote files"
+    
+    # Count files
+    file_count = len(successful_results)
+    
+    if file_count == 1:
+        result = successful_results[0]
+        file_path = result['path']
+        commit_hash = result.get('fetched_commit', '')
+        
+        # Extract just the filename for cleaner display
+        if '/' in file_path:
+            file_name = file_path.split('/')[-1]
+        else:
+            file_name = file_path
+        
+        # Include commit info if available and it's not HEAD
+        if commit_hash and len(commit_hash) >= 7 and commit_hash != result.get('commit', ''):
+            short_hash = commit_hash[:7]
+            return f"Update {file_name} to {short_hash}"
+        else:
+            return f"Update {file_name}"
+    
+    elif file_count <= 3:
+        # List individual files for small counts
+        file_names = []
+        for result in successful_results:
+            file_path = result['path']
+            if '/' in file_path:
+                file_name = file_path.split('/')[-1]
+            else:
+                file_name = file_path
+            file_names.append(file_name)
+        
+        if file_count == 2:
+            return f"Update {file_names[0]} and {file_names[1]}"
+        else:  # file_count == 3
+            return f"Update {', '.join(file_names[:-1])}, and {file_names[-1]}"
+    
+    else:
+        # For larger counts, use summary format with directory info if applicable
+        # Check if files are from the same directory structure
+        dirs = set()
+        for result in successful_results:
+            file_path = result['path']
+            if '/' in file_path:
+                dir_path = '/'.join(file_path.split('/')[:-1])
+                dirs.add(dir_path)
+        
+        if len(dirs) == 1 and dirs != {''}:
+            dir_name = dirs.pop()
+            return f"Update {file_count} files in {dir_name}/"
+        else:
+            return f"Update {file_count} remote files"
+
+
 def main():
     """Command-line interface for git-fetch-file."""
     if len(sys.argv) < 2:
@@ -523,6 +728,10 @@ def main():
         print("  --force                                 Overwrite local changes (pull only)")
         print("  --save                                  Update commit hashes (pull only)")
         print("  --jobs=<n>                              Number of parallel jobs (pull only, default: 4)")
+        print("  --commit                                Auto-commit with default message (pull only)")
+        print("  -m <msg>, --message=<msg>               Commit with message (pull only)")
+        print("  --edit                                  Edit commit message (pull only)")
+        print("  --no-commit                             Don't auto-commit changes (pull only)")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -567,6 +776,19 @@ def main():
         force_flag = "--force" in sys.argv
         save_flag = "--save" in sys.argv
         dry_run_flag = "--dry-run" in sys.argv
+        edit_flag = "--edit" in sys.argv
+        no_commit_flag = "--no-commit" in sys.argv
+        auto_commit_flag = "--commit" in sys.argv
+        
+        # Parse commit message from -m or --message
+        commit_message = None
+        for i, arg in enumerate(sys.argv):
+            if arg == "-m" and i + 1 < len(sys.argv):
+                commit_message = sys.argv[i + 1]
+                break
+            elif arg.startswith("--message="):
+                commit_message = arg.split("=", 1)[1]
+                break
         
         # Parse --jobs parameter
         jobs = 4  # default
@@ -581,7 +803,9 @@ def main():
                     print("error: --jobs must be a positive integer")
                     sys.exit(1)
         
-        pull_files(force=force_flag, save=save_flag, dry_run=dry_run_flag, jobs=jobs)
+        pull_files(force=force_flag, save=save_flag, dry_run=dry_run_flag, jobs=jobs,
+                  commit_message=commit_message, edit=edit_flag, no_commit=no_commit_flag,
+                  auto_commit=auto_commit_flag)
 
     elif cmd == "status" or cmd == "list":
         status_files()
