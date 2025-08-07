@@ -15,6 +15,7 @@ import shutil
 from pathlib import Path
 import glob as glob_module
 import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 REMOTE_FILE_MANIFEST = ".git-remote-files"
 CACHE_DIR = ".git/fetch-file-cache"
@@ -284,7 +285,7 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
     return fetched_commit
 
 
-def pull_files(force=False, save=False, dry_run=False):
+def pull_files(force=False, save=False, dry_run=False, jobs=4):
     """
     Pull all tracked files from .git-remote-files.
 
@@ -292,6 +293,7 @@ def pull_files(force=False, save=False, dry_run=False):
         force (bool): Overwrite local changes if True.
         save (bool): Update .git-remote-files commit entries for branch-based files.
         dry_run (bool): If True, only show what would be done without executing.
+        jobs (int): Number of concurrent jobs for fetching files.
     """
     config = load_remote_files()
     
@@ -300,13 +302,8 @@ def pull_files(force=False, save=False, dry_run=False):
             print("No remote files tracked.")
         return
     
-    # Collect results for organized dry-run output
-    if dry_run:
-        would_fetch = []
-        would_skip = []
-        up_to_date = []
-        errors = []
-    
+    # Collect file entries to process
+    file_entries = []
     for section in config.sections():
         path = section.split('"')[1]
         repo = config[section]["repo"]
@@ -317,18 +314,34 @@ def pull_files(force=False, save=False, dry_run=False):
             is_glob = config[section].getboolean("glob", False)
         else:
             is_glob = is_glob_pattern(path)
-            
-        if dry_run:
+        
+        file_entries.append({
+            'section': section,
+            'path': path,
+            'repo': repo,
+            'commit': commit,
+            'target_dir': target_dir,
+            'is_glob': is_glob
+        })
+    
+    # Collect results for organized dry-run output
+    if dry_run:
+        would_fetch = []
+        would_skip = []
+        up_to_date = []
+        errors = []
+        
+        for entry in file_entries:
             # Check if file would be updated by examining local state
             try:
                 # Determine target path based on target_dir
-                if target_dir:
-                    filename = Path(path).name
-                    target_path = Path(target_dir) / filename
-                    cache_key = f"{target_dir}_{filename}".replace("/", "_")
+                if entry['target_dir']:
+                    filename = Path(entry['path']).name
+                    target_path = Path(entry['target_dir']) / filename
+                    cache_key = f"{entry['target_dir']}_{filename}".replace("/", "_")
                 else:
-                    target_path = Path(path)
-                    cache_key = path.replace("/", "_")
+                    target_path = Path(entry['path'])
+                    cache_key = entry['path'].replace("/", "_")
                 
                 cache_file = Path(CACHE_DIR) / cache_key
                 local_hash = hash_file(target_path)
@@ -339,28 +352,23 @@ def pull_files(force=False, save=False, dry_run=False):
                 
                 # Simulate what would happen
                 if local_hash and local_hash != last_hash and not force:
-                    would_skip.append(f"{path} from {repo}")
-                elif local_hash == last_hash and commit != "HEAD":
+                    would_skip.append(f"{entry['path']} from {entry['repo']}")
+                elif local_hash == last_hash and entry['commit'] != "HEAD":
                     # File exists and hash matches - up to date
-                    up_to_date.append(f"{path} from {repo} ({commit[:7] if len(commit) > 7 else commit})")
+                    commit_display = entry['commit'][:7] if len(entry['commit']) > 7 else entry['commit']
+                    up_to_date.append(f"{entry['path']} from {entry['repo']} ({commit_display})")
                 else:
                     # Would fetch - show commit change if applicable
-                    commit_info = commit
-                    if save and commit != "HEAD":
-                        commit_info = f"{commit[:7] if len(commit) > 7 else commit} -> [new commit]"
-                    elif commit == "HEAD":
+                    commit_info = entry['commit']
+                    if save and entry['commit'] != "HEAD":
+                        commit_info = f"{entry['commit'][:7] if len(entry['commit']) > 7 else entry['commit']} -> [new commit]"
+                    elif entry['commit'] == "HEAD":
                         commit_info = "HEAD -> [latest]"
-                    would_fetch.append(f"{path} from {repo} ({commit_info})")
-                    
+                    would_fetch.append(f"{entry['path']} from {entry['repo']} ({commit_info})")
+                        
             except Exception as e:
-                errors.append(f"{path} from {repo}: {str(e)}")
-        else:
-            fetched_commit = fetch_file(repo, path, commit, is_glob, force=force, target_dir=target_dir, dry_run=dry_run)
-
-            if save and commit != "HEAD" and not commit.startswith(fetched_commit[:7]):
-                config[section]["commit"] = fetched_commit
-    
-    if dry_run:
+                errors.append(f"{entry['path']} from {entry['repo']}: {str(e)}")
+        
         # Print organized output
         if would_fetch:
             print("Would fetch:")
@@ -388,9 +396,66 @@ def pull_files(force=False, save=False, dry_run=False):
         
         if not (would_fetch or would_skip or up_to_date or errors):
             print("No changes needed.")
+        
+        return
     
-    if save and not dry_run:
-        save_remote_files(config)
+    # Execute concurrent fetching
+    def fetch_entry(entry):
+        """Fetch a single file entry and return results."""
+        try:
+            fetched_commit = fetch_file(
+                entry['repo'], 
+                entry['path'], 
+                entry['commit'], 
+                entry['is_glob'], 
+                force=force, 
+                target_dir=entry['target_dir'], 
+                dry_run=False
+            )
+            return {
+                'section': entry['section'],
+                'path': entry['path'],
+                'commit': entry['commit'],
+                'fetched_commit': fetched_commit,
+                'success': True,
+                'error': None
+            }
+        except Exception as e:
+            return {
+                'section': entry['section'],
+                'path': entry['path'],
+                'commit': entry['commit'],
+                'fetched_commit': None,
+                'success': False,
+                'error': str(e)
+            }
+    
+    # Use thread pool for concurrent execution
+    results = []
+    with ThreadPoolExecutor(max_workers=jobs) as executor:
+        # Submit all tasks
+        future_to_entry = {executor.submit(fetch_entry, entry): entry for entry in file_entries}
+        
+        # Collect results as they complete
+        for future in as_completed(future_to_entry):
+            result = future.result()
+            results.append(result)
+            
+            # Print errors immediately for better user feedback
+            if not result['success']:
+                print(f"Error fetching {result['path']}: {result['error']}")
+    
+    # Update config with new commits if save is enabled
+    if save:
+        updated = False
+        for result in results:
+            if result['success'] and result['commit'] != "HEAD":
+                if not result['commit'].startswith(result['fetched_commit'][:7]):
+                    config[result['section']]["commit"] = result['fetched_commit']
+                    updated = True
+        
+        if updated:
+            save_remote_files(config)
 
 
 def status_files():
@@ -457,6 +522,7 @@ def main():
         print("  --dry-run                               Show what would be done without executing")
         print("  --force                                 Overwrite local changes (pull only)")
         print("  --save                                  Update commit hashes (pull only)")
+        print("  --jobs=<n>                              Number of parallel jobs (pull only, default: 4)")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -501,7 +567,21 @@ def main():
         force_flag = "--force" in sys.argv
         save_flag = "--save" in sys.argv
         dry_run_flag = "--dry-run" in sys.argv
-        pull_files(force=force_flag, save=save_flag, dry_run=dry_run_flag)
+        
+        # Parse --jobs parameter
+        jobs = 4  # default
+        for arg in sys.argv:
+            if arg.startswith("--jobs="):
+                try:
+                    jobs = int(arg.split("=")[1])
+                    if jobs < 1:
+                        print("error: --jobs must be a positive integer")
+                        sys.exit(1)
+                except ValueError:
+                    print("error: --jobs must be a positive integer")
+                    sys.exit(1)
+        
+        pull_files(force=force_flag, save=save_flag, dry_run=dry_run_flag, jobs=jobs)
 
     elif cmd == "status" or cmd == "list":
         status_files()

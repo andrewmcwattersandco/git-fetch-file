@@ -11,7 +11,10 @@ It’s like a mini submodule, but for just the files you want.
 - Track origin, commit, and comments in .git-remote-files
 - Optionally overwrite local changes with `--force`
 - Update tracked commits with `--save`
-- Simple CLI interface
+- **Dry-run mode** to preview changes without executing them
+- **Concurrent fetching** with configurable parallelism (`--jobs`)
+- **Git-style output** with clean, organized status reporting
+- Simple CLI interface that feels like native git commands
 
 ## Installation
 
@@ -40,7 +43,7 @@ Save the script as `git-fetch-file` somewhere on your PATH.
 Track a file (or glob) from a remote Git repository.
 
 ```sh
-git fetch-file add <repo> <path> [target_dir] [--commit <commit>] [--glob] [--no-glob] [--comment <text>]
+git fetch-file add <repo> <path> [target_dir] [--commit <commit>] [--glob] [--no-glob] [--comment <text>] [--dry-run]
 ```
 
 - repo: The URL or path to the remote Git repo
@@ -50,25 +53,35 @@ git fetch-file add <repo> <path> [target_dir] [--commit <commit>] [--glob] [--no
 - --glob: If specified, interprets path as a glob pattern
 - --no-glob: If specified, treats path as literal filename (overrides auto-detection)
 - --comment: Add a descriptive comment to the manifest
+- --dry-run: Show what would be added without actually doing it
 
 ### pull
 
 Download all tracked files.
 
 ```sh
-git fetch-file pull [--force] [--save]
+git fetch-file pull [--force] [--save] [--dry-run] [--jobs=<n>]
 ```
 
 - --force: Overwrite local changes to files
 - --save: Update the commit in .git-remote-files if you're tracking a branch or tag that moved
+- --dry-run: Show what would be fetched without actually downloading files
+- --jobs=<n>: Number of parallel jobs for fetching (default: 4, like git)
 
 ### status
 
-View all tracked files.
+View all tracked files in a clean, git-style format.
 
 ```sh
 git fetch-file status
 git fetch-file list    # alias for status
+```
+
+Output format (similar to `git remote -v`):
+```
+src/utils.js (glob)     https://github.com/user/library.git (a1b2c3d) # Utility functions
+config/webpack.js       https://github.com/company/tools.git (HEAD)
+docs/*.md -> docs/      https://github.com/org/templates.git (f4e5d6c) # Documentation
 ```
 
 ## .git-remote-files
@@ -85,21 +98,94 @@ comment = Common utility function
 
 This file should be committed to your repository.
 
-## Example
+## Performance & Workflow
 
-### Track a remote file
+### Concurrent Operations
+git-fetch-file supports concurrent downloading for better performance:
+- Default: 4 parallel jobs (like git's default)
+- Configurable with `--jobs=<n>` 
+- Particularly effective when fetching from multiple repositories
+- Thread-safe with proper error isolation
+
+### Dry-Run Mode
+Always preview changes before execution:
+- `--dry-run` shows exactly what would happen
+- Validates repository access
+- Detects conflicts and local changes
+- No side effects - safe to run anytime
+
+### Git-Style Integration
+Designed to feel like native git commands:
+- Familiar argument patterns (`--force`, `--jobs`, etc.)
+- Clean, organized output without visual clutter
+- Error and warning messages follow git conventions
+- Works seamlessly with git aliases
+
+## Examples
+
+### Basic Usage
+
+#### Track a remote file
 ```sh
 git fetch-file add https://github.com/user/project utils/logger.py --commit main --comment "Logging helper"
 ```
 
-### Track a file into a specific directory
+#### Track a file into a specific directory
 ```sh
 git fetch-file add https://github.com/user/project utils/logger.py vendor --commit main --comment "Third-party logging helper"
 ```
 
-### Pull it into your repo
+#### Pull it into your repo
 ```sh
 git fetch-file pull
+```
+
+### Advanced Features
+
+#### Preview what would be added (dry-run)
+```sh
+git fetch-file add https://github.com/user/project "src/*.js" --glob --dry-run
+```
+Output:
+```
+Would validate repository access: https://github.com/user/project
+Repository access confirmed
+Would add glob pattern src/*.js from https://github.com/user/project (commit: HEAD)
+```
+
+#### Preview what would be pulled
+```sh
+git fetch-file pull --dry-run
+```
+Output:
+```
+Would fetch:
+  src/utils.js from https://github.com/user/library.git (a1b2c3d -> [new commit])
+  config/webpack.js from https://github.com/company/tools.git (HEAD -> [latest])
+
+Would skip (local changes):
+  docs/README.md from https://github.com/org/templates.git (use --force to overwrite)
+
+Up to date:
+  package.json from https://github.com/user/library.git (f4e5d6c)
+```
+
+#### Fast concurrent pulling
+```sh
+# Use 8 parallel jobs for faster fetching
+git fetch-file pull --jobs=8
+
+# Conservative single-threaded mode
+git fetch-file pull --jobs=1
+```
+
+#### Track glob patterns
+```sh
+# Track all JavaScript files in src/
+git fetch-file add https://github.com/user/project "src/*.js" --glob --comment "Source files"
+
+# Auto-detection works too (detects glob characters)
+git fetch-file add https://github.com/user/project "docs/**/*.md"
 ```
 
 ## License
