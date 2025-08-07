@@ -110,7 +110,7 @@ By default, changes are not automatically committed (following git's convention)
 : Show what would be fetched without actually downloading files.
 
 `--jobs=<n>`
-: Number of parallel jobs for fetching. Default is 4, like git's default parallelism.
+: Number of parallel jobs for fetching. By default, matches the number of logical CPUs (like git's default parallelism).
 
 `--commit`
 : Auto-commit changes with a git-style default message that includes information about what was fetched (e.g., "Update README.md", "Update utils.js and config.json", "Update 5 files in src/").
@@ -194,9 +194,10 @@ git fetch-file pull --save  # No change, still at v1.2.3
 
 ## Performance & Workflow
 
+git-fetch-file supports concurrent downloading for better performance:
 ### Concurrent Operations
 git-fetch-file supports concurrent downloading for better performance:
-- Default: 4 parallel jobs (like git's default)
+- Default: number of parallel jobs matches the number of logical CPUs (like git's default)
 - Configurable with `--jobs=<n>` 
 - Particularly effective when fetching from multiple repositories
 - Thread-safe with proper error isolation
@@ -278,6 +279,9 @@ git fetch-file pull --jobs=8
 
 # Conservative single-threaded mode
 git fetch-file pull --jobs=1
+
+# By default, the number of parallel jobs matches the number of logical CPUs on your system (like git's default)
+git fetch-file pull
 ```
 
 #### Auto-commit changes

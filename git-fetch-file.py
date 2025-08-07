@@ -286,7 +286,7 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
     return fetched_commit
 
 
-def pull_files(force=False, save=False, dry_run=False, jobs=4, commit_message=None, edit=False, no_commit=False, auto_commit=False):
+def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message=None, edit=False, no_commit=False, auto_commit=False):
     """
     Pull all tracked files from .git-remote-files.
 
@@ -435,17 +435,20 @@ def pull_files(force=False, save=False, dry_run=False, jobs=4, commit_message=No
                 'error': str(e)
             }
     
-    # Use thread pool for concurrent execution
+    # Determine default jobs if not set
+    if jobs is None:
+        try:
+            jobs = os.cpu_count() or 1
+        except Exception:
+            jobs = 1
     results = []
     with ThreadPoolExecutor(max_workers=jobs) as executor:
         # Submit all tasks
         future_to_entry = {executor.submit(fetch_entry, entry): entry for entry in file_entries}
-        
         # Collect results as they complete
         for future in as_completed(future_to_entry):
             result = future.result()
             results.append(result)
-            
             # Print errors immediately for better user feedback
             if not result['success']:
                 print(f"Error fetching {result['path']}: {result['error']}")
@@ -802,7 +805,7 @@ def main():
                 break
         
         # Parse --jobs parameter
-        jobs = 4  # default
+        jobs = None  # default: None means auto-detect (os.cpu_count())
         for arg in sys.argv:
             if arg.startswith("--jobs="):
                 try:
@@ -813,7 +816,6 @@ def main():
                 except ValueError:
                     print("error: --jobs must be a positive integer")
                     sys.exit(1)
-        
         pull_files(force=force_flag, save=save_flag, dry_run=dry_run_flag, jobs=jobs,
                   commit_message=commit_message, edit=edit_flag, no_commit=no_commit_flag,
                   auto_commit=auto_commit_flag)
