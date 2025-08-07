@@ -276,21 +276,45 @@ def pull_files(force=False, save=False):
 def status_files():
     """Print all files tracked in .git-remote-files."""
     config = load_remote_files()
+    
+    if not config.sections():
+        print("No remote files tracked.")
+        return
+    
     for section in config.sections():
         path = section.split('"')[1]
         repo = config[section]["repo"]
         commit = config[section].get("commit", "HEAD")
         target_dir = config[section].get("target", None)
+        comment = config[section].get("comment", "")
+        
         # Check if glob was explicitly set, otherwise auto-detect
         if "glob" in config[section]:
             is_glob = config[section].getboolean("glob", False)
         else:
             is_glob = is_glob_pattern(path)
         
-        # Show if it's a glob pattern
-        pattern_indicator = " (glob)" if is_glob else ""
-        target_indicator = f" -> {target_dir}" if target_dir else ""
-        print(f"{path}{pattern_indicator}{target_indicator} (repo: {repo}, commit: {commit})")
+        # Format the path display like git remote -v
+        path_display = path
+        if target_dir:
+            path_display += f" -> {target_dir}"
+        
+        # Add glob indicator
+        glob_indicator = " (glob)" if is_glob else ""
+        
+        # Truncate commit hash for display
+        commit_display = commit
+        if len(commit) > 7 and commit != "HEAD":
+            commit_display = commit[:7]
+        
+        # Format like: path[glob_indicator] repo (commit)
+        line = f"{path_display}{glob_indicator}\t{repo} ({commit_display})"
+        
+        # Add comment if present
+        if comment:
+            line += f" # {comment}"
+        
+        print(line)
 
 
 def is_glob_pattern(path):
