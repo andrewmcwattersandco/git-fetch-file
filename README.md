@@ -1,6 +1,18 @@
 # git-fetch-file
 Fetch and sync individual files or globs from other Git repositories, with commit tracking and local-change protection
 
+```sh
+# Track a file from another repo
+# -b, --branch, is optional, defaults to default branch (usually main or master)
+git fetch-file add https://github.com/user/awesome-lib.git utils/helper.js -b main
+
+# Pull it into your project
+# --commit is optional, defaults to no commit
+git fetch-file pull --commit
+
+# That's it! The file is now in your repo and tracked in .git-remote-files
+```
+
 **git-fetch-file(1)** is a utility for importing specific files from other Git repositories into your own project while keeping a manifest (.git-remote-files) that remembers where they came from and what commit they belong to.
 
 It’s like a mini submodule, but for just the files you want.
@@ -54,7 +66,10 @@ Adds a file or glob pattern from a remote Git repository to the tracking manifes
 **OPTIONS**
 
 `--commit <commit>`
-: Specify a commit, branch, or tag to track. Defaults to `HEAD`.
+: Specify a commit hash or tag to track. This creates a "detached" tracking that stays pinned to that exact commit/tag, similar to git's detached HEAD state.
+
+`-b <branch>`, `--branch <branch>`
+: Track a specific branch. This will always fetch the latest commit from that branch tip when pulling (especially useful with `--save` to update the manifest).
 
 `--glob`
 : Treat `<path>` as a glob pattern. Overrides auto-detection.
@@ -89,7 +104,7 @@ By default, changes are not automatically committed (following git's convention)
 : Overwrite files with local changes. Without this flag, files with local modifications are skipped.
 
 `--save`
-: Update commit hashes in `.git-remote-files` for branch/tag references that have moved.
+: Update commit hashes in `.git-remote-files` for branch references that have moved. This is particularly useful when tracking branches (added with `-b/--branch`) to get the latest commits. Files tracking specific commit hashes or tags remain unchanged.
 
 `--dry-run`
 : Show what would be fetched without actually downloading files.
@@ -147,6 +162,36 @@ comment = Common utility function
 
 This file should be committed to your repository.
 
+## Tracking Modes
+
+git-fetch-file supports two distinct tracking modes that behave differently:
+
+### Branch Tracking (`-b/--branch`)
+When you track a branch with `-b` or `--branch`, git-fetch-file follows the branch tip:
+- Always fetches the latest commit from that branch
+- Use `pull --save` to update the manifest with new commit hashes
+- Similar to how git submodules work when following a branch
+- Perfect for staying current with active development
+
+Example:
+```sh
+git fetch-file add repo.git src/utils.js -b main
+git fetch-file pull --save  # Gets latest main and updates manifest
+```
+
+### Commit/Tag Tracking (`--commit`)
+When you track a specific commit hash or tag with `--commit`, git-fetch-file pins to that exact point:
+- Always fetches the same commit, even if the branch has moved
+- `pull --save` has no effect (nothing to update)
+- Similar to git's "detached HEAD" state
+- Perfect for reproducible builds and stable dependencies
+
+Example:
+```sh
+git fetch-file add repo.git src/utils.js --commit v1.2.3
+git fetch-file pull --save  # No change, still at v1.2.3
+```
+
 ## Performance & Workflow
 
 ### Concurrent Operations
@@ -176,12 +221,19 @@ Designed to feel like native git commands:
 
 #### Track a remote file
 ```sh
-git fetch-file add https://github.com/user/project.git utils/logger.py --commit main --comment "Logging helper"
+# Track the latest commit from the main branch (updates when you pull with --save)
+git fetch-file add https://github.com/user/project.git utils/logger.py -b main --comment "Logging helper"
+
+# Track a specific commit (stays pinned to that exact commit)
+git fetch-file add https://github.com/user/project.git utils/config.py --commit a1b2c3d --comment "Config at stable release"
+
+# Track a specific tag (stays pinned to that tag)
+git fetch-file add https://github.com/user/project.git utils/version.py --commit v1.2.3 --comment "Version helper"
 ```
 
 #### Track a file into a specific directory
 ```sh
-git fetch-file add https://github.com/user/project.git utils/logger.py vendor --commit main --comment "Third-party logging helper"
+git fetch-file add https://github.com/user/project.git utils/logger.py vendor -b main --comment "Third-party logging helper"
 ```
 
 #### Pull it into your repo
@@ -257,6 +309,23 @@ git fetch-file add https://github.com/user/project.git "src/*.js" --glob --comme
 
 # Auto-detection works too (detects glob characters)
 git fetch-file add https://github.com/user/project.git "docs/**/*.md"
+```
+
+#### Branch vs Commit Tracking
+```sh
+# Track a branch - gets updates when the branch moves
+git fetch-file add https://github.com/user/lib.git utils.js -b develop --comment "Latest development utils"
+
+# Track a specific commit - stays pinned forever  
+git fetch-file add https://github.com/user/lib.git config.js --commit a1b2c3d --comment "Stable config"
+
+# Track a tag - stays pinned to that release
+git fetch-file add https://github.com/user/lib.git version.js --commit v2.1.0 --comment "Release version helper"
+
+# Pull and update branch-tracked files to latest commits
+git fetch-file pull --save
+# utils.js gets updated if develop branch moved forward
+# config.js and version.js stay at their pinned commits
 ```
 
 ## License

@@ -723,22 +723,30 @@ def main():
         print("  list                                      List all tracked files")
         print("  status                                    Alias for list")
         print("")
-        print("Options:")
+        print("Add options:")
+        print("  --commit <commit>                         Track specific commit/tag")
+        print("  -b, --branch <branch>                     Track specific branch")
+        print("  --glob                                    Force treat path as glob pattern")
+        print("  --no-glob                                 Force treat path as literal file")
+        print("  --comment <text>                          Add descriptive comment")
+        print("  --dry-run                                 Show what would be done")
+        print("")
+        print("Pull options:")
         print("  --dry-run                                 Show what would be done without executing")
-        print("  --force                                   Overwrite local changes (pull only)")
-        print("  --save                                    Update commit hashes (pull only)")
-        print("  --jobs=<n>                                Number of parallel jobs (pull only, default: 4)")
-        print("  --commit                                  Auto-commit with default message (pull only)")
-        print("  -m <msg>, --message=<msg>                 Commit with message (pull only)")
-        print("  --edit                                    Edit commit message (pull only)")
-        print("  --no-commit                               Don't auto-commit changes (pull only)")
+        print("  --force                                   Overwrite local changes")
+        print("  --save                                    Update commit hashes for branches")
+        print("  --jobs=<n>                                Number of parallel jobs (default: 4)")
+        print("  --commit                                  Auto-commit with default message")
+        print("  -m <msg>, --message=<msg>                 Commit with message")
+        print("  --edit                                    Edit commit message")
+        print("  --no-commit                               Don't auto-commit changes")
         sys.exit(1)
 
     cmd = sys.argv[1]
 
     if cmd == "add":
         if len(sys.argv) < 4:
-            print("Usage: git fetch-file add <repo> <path> [target_dir] [--commit <commit>] [--glob] [--no-glob] [--comment <text>] [--dry-run]")
+            print("Usage: git fetch-file add <repo> <path> [target_dir] [--commit <commit>] [-b|--branch <branch>] [--glob] [--no-glob] [--comment <text>] [--dry-run]")
             sys.exit(1)
         repo = sys.argv[2]
         path = sys.argv[3]
@@ -758,6 +766,9 @@ def main():
         i = 0
         while i < len(args):
             if args[i] == "--commit":
+                i += 1
+                commit = args[i]
+            elif args[i] == "--branch" or args[i] == "-b":
                 i += 1
                 commit = args[i]
             elif args[i] == "--glob":
