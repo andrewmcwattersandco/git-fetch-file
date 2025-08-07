@@ -38,51 +38,86 @@ Save the script as `git-fetch-file` somewhere on your PATH.
 
 ## Commands
 
-### add
+### git fetch-file add
 
 Track a file (or glob) from a remote Git repository.
 
-```sh
-git fetch-file add <repo> <path> [target_dir] [--commit <commit>] [--glob] [--no-glob] [--comment <text>] [--dry-run]
+**SYNOPSIS**
+```
+git fetch-file add <repo> <path> [<target_dir>] [<options>]
 ```
 
-- repo: The URL or path to the remote Git repo
-- path: Path (or glob if --glob is used) to the file(s) in the remote repo
-- target_dir: Optional target directory to place the file (preserves filename)
-- --commit: Optional commit, branch, or tag to track (default: HEAD)
-- --glob: If specified, interprets path as a glob pattern
-- --no-glob: If specified, treats path as literal filename (overrides auto-detection)
-- --comment: Add a descriptive comment to the manifest
-- --dry-run: Show what would be added without actually doing it
+**DESCRIPTION**
 
-### pull
+Adds a file or glob pattern from a remote Git repository to the tracking manifest (`.git-remote-files`). The file will be downloaded on the next `pull` operation.
 
-Download all tracked files.
+**OPTIONS**
 
-```sh
-git fetch-file pull [--force] [--save] [--dry-run] [--jobs=<n>]
+`--commit <commit>`
+: Specify a commit, branch, or tag to track. Defaults to `HEAD`.
+
+`--glob`
+: Treat `<path>` as a glob pattern. Overrides auto-detection.
+
+`--no-glob`
+: Treat `<path>` as a literal filename. Overrides auto-detection.
+
+`--comment <text>`
+: Add a descriptive comment to the manifest entry.
+
+`--dry-run`
+: Show what would be added without actually modifying the manifest.
+
+### git fetch-file pull
+
+Download all tracked files from their respective repositories.
+
+**SYNOPSIS**
+```
+git fetch-file pull [<options>]
 ```
 
-- --force: Overwrite local changes to files
-- --save: Update the commit in .git-remote-files if you're tracking a branch or tag that moved
-- --dry-run: Show what would be fetched without actually downloading files
-- --jobs=<n>: Number of parallel jobs for fetching (default: 4, like git)
+**DESCRIPTION**
 
-### status
+Fetches all files tracked in `.git-remote-files` from their source repositories. Files are downloaded to their configured target locations and local changes are detected automatically.
+
+**OPTIONS**
+
+`--force`
+: Overwrite files with local changes. Without this flag, files with local modifications are skipped.
+
+`--save`
+: Update commit hashes in `.git-remote-files` for branch/tag references that have moved.
+
+`--dry-run`
+: Show what would be fetched without actually downloading files.
+
+`--jobs=<n>`
+: Number of parallel jobs for fetching. Default is 4, like git's default parallelism.
+
+### git fetch-file status
 
 View all tracked files in a clean, git-style format.
 
-```sh
+**SYNOPSIS**
+```
 git fetch-file status
-git fetch-file list    # alias for status
+git fetch-file list
 ```
 
-Output format (similar to `git remote -v`):
+**DESCRIPTION**
+
+Lists all files currently tracked in `.git-remote-files` with their source repositories and commit information. The output format is similar to `git remote -v`.
+
+**OUTPUT FORMAT**
 ```
-src/utils.js (glob)     https://github.com/user/library.git (a1b2c3d) # Utility functions
-config/webpack.js       https://github.com/company/tools.git (HEAD)
-docs/*.md -> docs/      https://github.com/org/templates.git (f4e5d6c) # Documentation
+<path>[<indicators>]    <repository> (<commit>) [# <comment>]
 ```
+
+Where:
+- `<indicators>` may include `(glob)` for glob patterns and `-> <target>` for custom target directories
+- `<commit>` is truncated to 7 characters for display
+- `<comment>` is shown if present in the manifest
 
 ## .git-remote-files
 
@@ -90,7 +125,7 @@ Each tracked file is recorded in .git-remote-files (INI format). Example entry:
 
 ```ini
 [file "lib/util.py"]
-repo = https://github.com/example/tools
+repo = https://github.com/example/tools.git
 commit = a1b2c3d
 target = vendor
 comment = Common utility function
@@ -127,12 +162,12 @@ Designed to feel like native git commands:
 
 #### Track a remote file
 ```sh
-git fetch-file add https://github.com/user/project utils/logger.py --commit main --comment "Logging helper"
+git fetch-file add https://github.com/user/project.git utils/logger.py --commit main --comment "Logging helper"
 ```
 
 #### Track a file into a specific directory
 ```sh
-git fetch-file add https://github.com/user/project utils/logger.py vendor --commit main --comment "Third-party logging helper"
+git fetch-file add https://github.com/user/project.git utils/logger.py vendor --commit main --comment "Third-party logging helper"
 ```
 
 #### Pull it into your repo
@@ -144,13 +179,13 @@ git fetch-file pull
 
 #### Preview what would be added (dry-run)
 ```sh
-git fetch-file add https://github.com/user/project "src/*.js" --glob --dry-run
+git fetch-file add https://github.com/user/project.git "src/*.js" --glob --dry-run
 ```
 Output:
 ```
-Would validate repository access: https://github.com/user/project
+Would validate repository access: https://github.com/user/project.git
 Repository access confirmed
-Would add glob pattern src/*.js from https://github.com/user/project (commit: HEAD)
+Would add glob pattern src/*.js from https://github.com/user/project.git (commit: HEAD)
 ```
 
 #### Preview what would be pulled
@@ -182,10 +217,10 @@ git fetch-file pull --jobs=1
 #### Track glob patterns
 ```sh
 # Track all JavaScript files in src/
-git fetch-file add https://github.com/user/project "src/*.js" --glob --comment "Source files"
+git fetch-file add https://github.com/user/project.git "src/*.js" --glob --comment "Source files"
 
 # Auto-detection works too (detects glob characters)
-git fetch-file add https://github.com/user/project "docs/**/*.md"
+git fetch-file add https://github.com/user/project.git "docs/**/*.md"
 ```
 
 ## License
