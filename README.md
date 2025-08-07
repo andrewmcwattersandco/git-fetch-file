@@ -311,6 +311,38 @@ git fetch-file add https://github.com/user/project.git "src/*.js" --glob --comme
 git fetch-file add https://github.com/user/project.git "docs/**/*.md"
 ```
 
+#### Track an entire repository
+```sh
+# Track all files from a repository (equivalent to a lightweight submodule)
+git fetch-file add https://github.com/user/small-lib.git "**" --glob -b main --comment "Complete library"
+
+# Track all files into a specific directory
+git fetch-file add https://github.com/user/templates.git "**" vendor/templates --glob -b main --comment "Template collection"
+
+# Track only specific file types from entire repo
+git fetch-file add https://github.com/user/assets.git "**/*.{js,css,png}" --glob --commit v1.0.0 --comment "Static assets"
+
+# Pull everything
+git fetch-file pull --save  # Updates branch-tracked repos to latest
+```
+
+**Pro tip for entire repositories:** You may want to add tracked directories to `.gitignore` so they're not committed to your main repo, then pull them locally or in CI:
+
+```sh
+# Add to .gitignore
+echo "vendor/templates/" >> .gitignore
+echo "vendor/assets/" >> .gitignore
+
+# Commit the tracking config but not the files themselves
+git add .git-remote-files .gitignore
+git commit -m "Track external dependencies"
+
+# Anyone cloning your repo can then pull the dependencies
+git clone your-repo.git
+cd your-repo
+git fetch-file pull  # Downloads all tracked files locally
+```
+
 #### Branch vs Commit Tracking
 ```sh
 # Track a branch - gets updates when the branch moves
