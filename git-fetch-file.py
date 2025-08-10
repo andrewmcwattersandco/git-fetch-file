@@ -199,10 +199,15 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
             
             # Determine target path based on target_dir
             if target_dir:
-                # Place file in target directory, preserving filename
-                filename = Path(relative_path).name
-                target_path = Path(target_dir) / filename
-                cache_key = f"{target_dir}_{filename}".replace("/", "_")
+                if is_glob:
+                    # For glob patterns, preserve directory structure within target directory
+                    target_path = Path(target_dir) / relative_path
+                    cache_key = f"{target_dir}_{relative_path}".replace("/", "_")
+                else:
+                    # For single files, place file in target directory, preserving filename
+                    filename = Path(relative_path).name
+                    target_path = Path(target_dir) / filename
+                    cache_key = f"{target_dir}_{filename}".replace("/", "_")
             else:
                 # Use original path structure
                 target_path = Path(relative_path)
@@ -341,9 +346,15 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
             try:
                 # Determine target path based on target_dir
                 if entry['target_dir']:
-                    filename = Path(entry['path']).name
-                    target_path = Path(entry['target_dir']) / filename
-                    cache_key = f"{entry['target_dir']}_{filename}".replace("/", "_")
+                    if entry['is_glob']:
+                        # For glob patterns, preserve directory structure within target directory
+                        target_path = Path(entry['target_dir']) / entry['path']
+                        cache_key = f"{entry['target_dir']}_{entry['path']}".replace("/", "_")
+                    else:
+                        # For single files, place file in target directory, preserving filename
+                        filename = Path(entry['path']).name
+                        target_path = Path(entry['target_dir']) / filename
+                        cache_key = f"{entry['target_dir']}_{filename}".replace("/", "_")
                 else:
                     target_path = Path(entry['path'])
                     cache_key = entry['path'].replace("/", "_")
