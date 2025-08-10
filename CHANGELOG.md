@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dry-run target path calculation**: Fixed inconsistent path handling between actual fetching and dry-run mode for glob patterns
 
 ### Improved
-- **Massive performance improvement for glob patterns**: Reduced repository cloning from N+1 operations (1 for discovery + 1 per file) to just 1 clone operation total, resulting in ~72x improvement for large repositories
+- **Massive performance improvement for glob patterns**: Reduced repository cloning from N+1 operations (1 for discovery + 1 per file) to just 1 clone operation total
 - **Git-style error messages**: Updated all error and warning messages to follow standard git command conventions:
   - Use `fatal:`, `error:`, and `warning:` prefixes appropriately
   - Lowercase message text (except proper nouns)
