@@ -76,14 +76,14 @@ def add_file(repo, path, commit=None, glob=None, comment="", target_dir=None, dr
                 timeout=10
             )
             if result.returncode != 0:
-                print(f"error: Cannot access repository: {result.stderr.strip()}")
+                print(f"error: cannot access repository: {result.stderr.strip()}")
                 return
             else:
-                print("Repository access confirmed")
+                print("repository access confirmed")
         except subprocess.TimeoutExpired:
-            print("warning: Repository validation timed out")
+            print("warning: repository validation timed out")
         except Exception as e:
-            print(f"warning: Could not validate repository: {e}")
+            print(f"warning: could not validate repository: {e}")
     
     config = load_remote_files()
     section = f'file "{path}"'
@@ -242,11 +242,11 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
 
                 print(f"Fetched {relative_path} -> {target_path} at {commit}")
             else:
-                print(f"Warning: File {f} not found in repository")
+                print(f"warning: file {f} not found in repository")
     
     except subprocess.CalledProcessError as e:
-        print(f"Error: Failed to clone repository: {e}")
-        raise RuntimeError(f"Failed to clone repository: {e}")
+        print(f"fatal: failed to clone repository: {e}")
+        raise RuntimeError(f"failed to clone repository: {e}")
     finally:
         # Clean up clone directory
         if clone_dir.exists():
@@ -439,7 +439,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
             results.append(result)
             # Print errors immediately for better user feedback
             if not result['success']:
-                print(f"Error fetching {result['path']}: {result['error']}")
+                print(f"error: fetching {result['path']}: {result['error']}")
     
     # Update config with new commits if save is enabled
     if save:
@@ -589,7 +589,7 @@ def commit_changes(commit_message=None, edit=False, no_commit=False, file_result
         return False
     
     if not is_git_repository():
-        print("warning: Not in a git repository, skipping commit")
+        print("warning: not in a git repository, skipping commit")
         return False
     
     if not has_git_changes():
@@ -628,7 +628,7 @@ def commit_changes(commit_message=None, edit=False, no_commit=False, file_result
         return True
         
     except subprocess.CalledProcessError as e:
-        print(f"warning: Failed to commit changes: {e}")
+        print(f"warning: failed to commit changes: {e}")
         return False
 
 
@@ -812,7 +812,7 @@ def main():
         status_files()
 
     else:
-        print(f"Unknown command: {cmd}")
+        print(f"fatal: unknown command: {cmd}")
         sys.exit(1)
 
 
