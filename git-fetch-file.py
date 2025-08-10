@@ -155,17 +155,31 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
     clone_dir.mkdir(parents=True, exist_ok=True)
     
     try:
-        # Clone the specific commit
-        clone_cmd = ["git", "clone", "--depth", "1"]
-        if commit != "HEAD":
-            clone_cmd.extend(["--branch", commit])
-        clone_cmd.extend([repo, str(clone_dir)])
-        
-        subprocess.run(
-            clone_cmd,
-            capture_output=True,
-            check=True
-        )
+        # Clone the repository - handle commit hashes differently than branches/tags
+        if commit == "HEAD" or not commit:
+            # Simple clone for HEAD
+            clone_cmd = ["git", "clone", "--depth", "1", repo, str(clone_dir)]
+            subprocess.run(clone_cmd, capture_output=True, check=True)
+        else:
+            # Check if commit looks like a hash (40 hex chars) or is a branch/tag
+            is_commit_hash = len(commit) == 40 and all(c in '0123456789abcdef' for c in commit.lower())
+            
+            if is_commit_hash:
+                # For commit hashes, clone without depth and then checkout
+                clone_cmd = ["git", "clone", repo, str(clone_dir)]
+                subprocess.run(clone_cmd, capture_output=True, check=True)
+                
+                # Checkout the specific commit
+                subprocess.run(
+                    ["git", "checkout", commit],
+                    cwd=clone_dir,
+                    capture_output=True,
+                    check=True
+                )
+            else:
+                # For branches/tags, use --branch with --depth
+                clone_cmd = ["git", "clone", "--depth", "1", "--branch", commit, repo, str(clone_dir)]
+                subprocess.run(clone_cmd, capture_output=True, check=True)
         
         # Get the actual commit hash
         result = subprocess.run(
