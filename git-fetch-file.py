@@ -150,49 +150,54 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
     if dry_run:
         return fetched_commit
 
+    # Clone the repository once for all files
+    clone_dir = Path(TEMP_DIR) / "fetch_clone"
+    clone_dir.mkdir(parents=True, exist_ok=True)
+    
     try:
+        # Clone the specific commit
+        clone_cmd = ["git", "clone", "--depth", "1"]
+        if commit != "HEAD":
+            clone_cmd.extend(["--branch", commit])
+        clone_cmd.extend([repo, str(clone_dir)])
+        
+        subprocess.run(
+            clone_cmd,
+            capture_output=True,
+            check=True
+        )
+        
+        # Get the actual commit hash
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=clone_dir,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        fetched_commit = result.stdout.strip()
+        
+        # Determine which files to process
         files = [path]
         if is_glob:
-            # Get list of files from remote repository
+            # Get list of files from the cloned repository
             result = subprocess.run(
-                ["git", "ls-remote", "--heads", "--tags", repo],
+                ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+                cwd=clone_dir,
                 capture_output=True,
                 text=True
             )
             if result.returncode != 0:
-                error_msg = f"Failed to connect to repository: {result.stderr}"
-                raise RuntimeError(error_msg)
+                raise RuntimeError(result.stderr)
+            files = [f for f in result.stdout.splitlines() if glob_module.fnmatch.fnmatch(f, path)]
             
-            # Clone the repository to a temporary location to get file listing
-            clone_dir = Path(TEMP_DIR) / "clone"
-            clone_dir.mkdir(parents=True, exist_ok=True)
-            
-            try:
-                clone_cmd = ["git", "clone", "--depth", "1"]
-                if commit != "HEAD":
-                    clone_cmd.extend(["--branch", commit])
-                clone_cmd.extend([repo, str(clone_dir)])
-                
-                subprocess.run(
-                    clone_cmd,
-                    capture_output=True,
-                    check=True
-                )
-                
-                result = subprocess.run(
-                    ["git", "ls-tree", "-r", "--name-only", "HEAD"],
-                    cwd=clone_dir,
-                    capture_output=True,
-                    text=True
-                )
-                if result.returncode != 0:
-                    raise RuntimeError(result.stderr)
-                files = [f for f in result.stdout.splitlines() if glob_module.fnmatch.fnmatch(f, path)]
-            finally:
-                # Clean up clone directory
-                if clone_dir.exists():
-                    shutil.rmtree(clone_dir)
-
+            if files:
+                print(f"Found {len(files)} files matching '{path}' in {repo}")
+            else:
+                print(f"No files found matching '{path}' in {repo}")
+                return fetched_commit
+        
+        # Process all files from the same clone
         for f in files:
             # Ensure we're working with relative paths to avoid system directory conflicts
             relative_path = f.lstrip('/')
@@ -224,57 +229,29 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
                 print(f"Skipping {relative_path}: local changes detected. Use --force to overwrite.")
                 continue
 
-            # Clone the repository to fetch the file
-            clone_dir = Path(TEMP_DIR) / "fetch_clone"
-            clone_dir.mkdir(parents=True, exist_ok=True)
-            
-            try:
-                # Clone the specific commit
-                clone_cmd = ["git", "clone", "--depth", "1"]
-                if commit != "HEAD":
-                    clone_cmd.extend(["--branch", commit])
-                clone_cmd.extend([repo, str(clone_dir)])
+            # Copy the file from clone to target location
+            source_file = clone_dir / f
+            if source_file.exists():
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_file, target_path)
                 
-                subprocess.run(
-                    clone_cmd,
-                    capture_output=True,
-                    check=True
-                )
-                
-                # Get the actual commit hash
-                result = subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
-                    cwd=clone_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                fetched_commit = result.stdout.strip()
-                
-                # Copy the file from clone to target location
-                source_file = clone_dir / f
-                if source_file.exists():
-                    target_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source_file, target_path)
-                    
-                    new_hash = hash_file(target_path)
-                    cache_file.parent.mkdir(parents=True, exist_ok=True)
-                    with open(cache_file, "w") as cf:
-                        cf.write(new_hash)
+                new_hash = hash_file(target_path)
+                cache_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(cache_file, "w") as cf:
+                    cf.write(new_hash)
 
-                    print(f"Fetched {relative_path} -> {target_path} at {commit}")
-                else:
-                    print(f"Warning: File {f} not found in repository")
-                    
-            except subprocess.CalledProcessError as e:
-                print(f"Warning: Failed to clone repository for {f}: {e}")
-                continue
-            finally:
-                # Clean up clone directory
-                if clone_dir.exists():
-                    shutil.rmtree(clone_dir)
-
+                print(f"Fetched {relative_path} -> {target_path} at {commit}")
+            else:
+                print(f"Warning: File {f} not found in repository")
+    
+    except subprocess.CalledProcessError as e:
+        print(f"Error: Failed to clone repository: {e}")
+        raise RuntimeError(f"Failed to clone repository: {e}")
     finally:
+        # Clean up clone directory
+        if clone_dir.exists():
+            shutil.rmtree(clone_dir)
+        
         # Clean up temp directory contents
         if temp_dir.exists():
             for item in temp_dir.iterdir():
