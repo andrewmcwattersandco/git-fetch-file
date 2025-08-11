@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2025-08-11
+
+### Fixed
+- **Concurrency crash with multiple files from same repository**: Fixed fatal crash when pulling multiple files from the same repository concurrently. The tool now groups files by repository and commit, creating a single shared clone per group instead of attempting multiple simultaneous clones to the same directory. This resolves the "Command returned non-zero exit status 128" error that occurred when using default concurrency settings
+
+### Improved
+- **Optimized concurrent fetching**: Repository cloning is now batched by repository and commit combination, reducing redundant clone operations and improving performance when fetching multiple files from the same source
+
 ## [1.2.1] - 2025-08-09
 
 ### Fixed
@@ -30,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.0] - Previous Release
 - Initial tracked version with core functionality
 
+[1.2.2]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/andrewmcwatters/git-fetch-file/releases/tag/v1.1.0
