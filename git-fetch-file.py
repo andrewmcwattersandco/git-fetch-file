@@ -49,14 +49,52 @@ def hash_file(path):
         return hashlib.sha1(f.read()).hexdigest()
 
 
-def add_file(repo, path, commit=None, glob=None, comment="", target_dir=None, dry_run=False):
+def resolve_commit_ref(repository, commit_ref):
+    """
+    Resolve a commit reference to an actual commit hash.
+    
+    Args:
+        repository (str): Remote repository URL.
+        commit_ref (str): Commit reference (commit hash, branch, tag, or "HEAD").
+        
+    Returns:
+        str: The resolved commit hash.
+        
+    Raises:
+        subprocess.CalledProcessError: If the commit reference cannot be resolved.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", repository, commit_ref],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        if result.stdout.strip():
+            # Extract the commit hash from ls-remote output
+            return result.stdout.strip().split('\t')[0]
+        else:
+            # If ls-remote didn't find the ref, try HEAD
+            result = subprocess.run(
+                ["git", "ls-remote", repository, "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return result.stdout.strip().split('\t')[0]
+    except subprocess.CalledProcessError:
+        raise
+
+
+def add_file(repository, path, commit=None, branch=None, glob=None, comment="", target_dir=None, dry_run=False):
     """
     Add a file or glob from a remote repository to .git-remote-files.
 
     Args:
-        repo (str): Remote repository URL.
+        repository (str): Remote repository URL.
         path (str): File path or glob pattern.
-        commit (str, optional): Commit, branch, or tag. Defaults to HEAD.
+        commit (str, optional): Specific commit hash to detach at.
+        branch (str, optional): Branch or tag name to track. Defaults to HEAD.
         glob (bool, optional): Whether path is a glob pattern. Auto-detected if None.
         comment (str): Optional comment describing the file.
         target_dir (str, optional): Target directory to place the file. Defaults to same path.
@@ -65,12 +103,17 @@ def add_file(repo, path, commit=None, glob=None, comment="", target_dir=None, dr
     # Normalize path by removing leading slash
     path = path.lstrip('/')
     
+    # Determine the commit reference and branch tracking behavior
+    # Priority: explicit commit > explicit branch > default to HEAD
+    commit_ref = commit or branch or "HEAD"
+    is_tracking_branch = branch is not None and not commit
+    
     if dry_run:
-        print(f"Would validate repository access: {repo}")
+        print(f"Would validate repository access: {repository}")
         # In dry-run mode, try to validate the repository exists
         try:
             result = subprocess.run(
-                ["git", "ls-remote", "--heads", "--tags", repo],
+                ["git", "ls-remote", "--heads", "--tags", repository],
                 capture_output=True,
                 text=True,
                 timeout=10
@@ -89,19 +132,49 @@ def add_file(repo, path, commit=None, glob=None, comment="", target_dir=None, dr
     section = f'file "{path}"'
     
     if dry_run:
+        # Resolve the commit reference to show accurate dry-run information
+        try:
+            actual_commit = resolve_commit_ref(repository, commit_ref)
+        except subprocess.CalledProcessError as e:
+            print(f"error: failed to resolve commit reference '{commit_ref}' in repository {repository}: {e}")
+            return
+        
         action = "update" if section in config.sections() else "add"
         pattern_type = "glob pattern" if (glob if glob is not None else is_glob_pattern(path)) else "file"
         target_info = f" -> {target_dir}" if target_dir else ""
-        commit_info = commit if commit else "HEAD"
-        print(f"Would {action} {pattern_type} {path}{target_info} from {repo} (commit: {commit_info})")
+        
+        # Create git status-like message for dry run
+        # Show the resolved commit hash and whether we're tracking a branch
+        if is_tracking_branch:
+            short_commit = actual_commit[:7] if len(actual_commit) > 7 else actual_commit
+            status_msg = f"On branch {branch} at {short_commit}"
+        else:
+            short_commit = actual_commit[:7] if len(actual_commit) > 7 else actual_commit
+            status_msg = f"HEAD detached at {short_commit}"
+        
+        print(f"Would {action} {pattern_type} {path}{target_info} from {repository} ({status_msg})")
         if comment:
             print(f"With comment: {comment}")
         return
     
+    # Resolve the commit reference to an actual commit hash
+    try:
+        actual_commit = resolve_commit_ref(repository, commit_ref)
+    except subprocess.CalledProcessError as e:
+        print(f"error: failed to resolve commit reference '{commit_ref}' in repository {repository}: {e}")
+        return
+    
     if section not in config.sections():
         config.add_section(section)
-    config[section]["repo"] = repo
-    config[section]["commit"] = commit if commit else "HEAD"
+    config[section]["repository"] = repository
+    config[section]["commit"] = actual_commit
+    
+    # Set branch tracking information
+    if is_tracking_branch:
+        config[section]["branch"] = branch
+    elif "branch" in config[section]:
+        # Remove branch key if we're now detaching to a specific commit
+        del config[section]["branch"]
     
     # Only set glob property if explicitly specified
     if glob is not None:
@@ -121,15 +194,27 @@ def add_file(repo, path, commit=None, glob=None, comment="", target_dir=None, dr
     
     pattern_type = "glob pattern" if glob else "file"
     target_info = f" -> {target_dir}" if target_dir else ""
-    print(f"Added {pattern_type} {path}{target_info} from {repo} (commit: {config[section]['commit']})")
+    
+    # Create git status-like message using the actual commit hash
+    if is_tracking_branch:
+        status_msg = f"On branch {branch}"
+        # Show current commit if it differs from branch name
+        short_commit = actual_commit[:7] if len(actual_commit) > 7 else actual_commit
+        status_msg += f" at {short_commit}"
+    else:
+        # Show the actual commit hash
+        short_commit = actual_commit[:7] if len(actual_commit) > 7 else actual_commit
+        status_msg = f"HEAD detached at {short_commit}"
+    
+    print(f"Added {pattern_type} {path}{target_info} from {repository} ({status_msg})")
 
 
-def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, dry_run=False):
+def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=None, dry_run=False):
     """
     Fetch a single file or glob from a remote repository at a specific commit.
 
     Args:
-        repo (str): Remote repository URL.
+        repository (str): Remote repository URL.
         path (str): File path or glob.
         commit (str): Commit, branch, or tag.
         is_glob (bool): Whether path is a glob pattern.
@@ -158,7 +243,7 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
         # Clone the repository - handle commit hashes differently than branches/tags
         if commit == "HEAD" or not commit:
             # Simple clone for HEAD
-            clone_cmd = ["git", "clone", "--depth", "1", repo, str(clone_dir)]
+            clone_cmd = ["git", "clone", "--depth", "1", repository, str(clone_dir)]
             subprocess.run(clone_cmd, capture_output=True, check=True)
         else:
             # Check if commit looks like a hash (40 hex chars) or is a branch/tag
@@ -166,7 +251,7 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
             
             if is_commit_hash:
                 # For commit hashes, clone without depth and then checkout
-                clone_cmd = ["git", "clone", repo, str(clone_dir)]
+                clone_cmd = ["git", "clone", repository, str(clone_dir)]
                 subprocess.run(clone_cmd, capture_output=True, check=True)
                 
                 # Checkout the specific commit
@@ -178,7 +263,7 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
                 )
             else:
                 # For branches/tags, use --branch with --depth
-                clone_cmd = ["git", "clone", "--depth", "1", "--branch", commit, repo, str(clone_dir)]
+                clone_cmd = ["git", "clone", "--depth", "1", "--branch", commit, repository, str(clone_dir)]
                 subprocess.run(clone_cmd, capture_output=True, check=True)
         
         # Get the actual commit hash
@@ -206,9 +291,9 @@ def fetch_file(repo, path, commit, is_glob=False, force=False, target_dir=None, 
             files = [f for f in result.stdout.splitlines() if glob_module.fnmatch.fnmatch(f, path)]
             
             if files:
-                print(f"Found {len(files)} files matching '{path}' in {repo}")
+                print(f"Found {len(files)} files matching '{path}' in {repository}")
             else:
-                print(f"No files found matching '{path}' in {repo}")
+                print(f"No files found matching '{path}' in {repository}")
                 return fetched_commit
         
         # Process all files from the same clone
@@ -306,10 +391,17 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
     
     # Collect file entries to process
     file_entries = []
+    config_migrated = False
     for section in config.sections():
         path = section.split('"')[1]
-        repo = config[section]["repo"]
-        commit = config[section].get("commit", "HEAD")
+        repository = get_repository_from_config(config, section)
+        
+        # Migrate section if needed
+        if migrate_config_section(config, section):
+            config_migrated = True
+            
+        commit = config[section]["commit"]  # Should always exist now
+        branch = config[section].get("branch", None)
         target_dir = config[section].get("target", None)
         # Check if glob was explicitly set, otherwise auto-detect
         if "glob" in config[section]:
@@ -320,19 +412,20 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
         file_entries.append({
             'section': section,
             'path': path,
-            'repo': repo,
+            'repository': repository,
             'commit': commit,
+            'branch': branch,
             'target_dir': target_dir,
             'is_glob': is_glob
         })
     
     # Group files by repository and commit to avoid concurrent cloning of the same repo
-    repo_groups = {}
+    repository_groups = {}
     for entry in file_entries:
-        repo_key = (entry['repo'], entry['commit'])
-        if repo_key not in repo_groups:
-            repo_groups[repo_key] = []
-        repo_groups[repo_key].append(entry)
+        repository_key = (entry['repository'], entry['commit'])
+        if repository_key not in repository_groups:
+            repository_groups[repository_key] = []
+        repository_groups[repository_key].append(entry)
     
     # Collect results for organized dry-run output
     if dry_run:
@@ -368,22 +461,27 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                 
                 # Simulate what would happen
                 if local_hash and local_hash != last_hash and not force:
-                    would_skip.append(f"{entry['path']} from {entry['repo']}")
-                elif local_hash == last_hash and entry['commit'] != "HEAD":
-                    # File exists and hash matches - up to date
-                    commit_display = entry['commit'][:7] if len(entry['commit']) > 7 else entry['commit']
-                    up_to_date.append(f"{entry['path']} from {entry['repo']} ({commit_display})")
+                    would_skip.append(f"{entry['path']} from {entry['repository']}")
+                elif local_hash == last_hash and not entry.get('branch'):
+                    # File exists and hash matches, and it's at a specific commit - up to date
+                    short_commit = entry['commit'][:7] if len(entry['commit']) > 7 else entry['commit']
+                    status_display = f"HEAD detached at {short_commit}"
+                    up_to_date.append(f"{entry['path']} from {entry['repository']} ({status_display})")
                 else:
                     # Would fetch - show commit change if applicable
-                    commit_info = entry['commit']
-                    if save and entry['commit'] != "HEAD":
-                        commit_info = f"{entry['commit'][:7] if len(entry['commit']) > 7 else entry['commit']} -> [new commit]"
-                    elif entry['commit'] == "HEAD":
-                        commit_info = "HEAD -> [latest]"
-                    would_fetch.append(f"{entry['path']} from {entry['repo']} ({commit_info})")
+                    if entry.get('branch'):
+                        # Branch-tracked file - like "On branch main"
+                        status_info = f"On branch {entry['branch']}"
+                        if save:
+                            status_info += " -> [update to latest]"
+                    else:
+                        # Non-branch-tracked files
+                        short_commit = entry['commit'][:7] if len(entry['commit']) > 7 else entry['commit']
+                        status_info = f"HEAD detached at {short_commit}"
+                    would_fetch.append(f"{entry['path']} from {entry['repository']} ({status_info})")
                         
             except Exception as e:
-                errors.append(f"{entry['path']} from {entry['repo']}: {str(e)}")
+                errors.append(f"{entry['path']} from {entry['repository']}: {str(e)}")
         
         # Print organized output
         if would_fetch:
@@ -416,9 +514,9 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
         return
     
     # Execute concurrent fetching by repository groups
-    def fetch_repo_group(repo_key, entries):
+    def fetch_repository_group(repository_key, entries):
         """Fetch all files from a single repository group as a batch."""
-        repo, commit = repo_key
+        repository, commit = repository_key
         results = []
         
         temp_dir = Path(TEMP_DIR)
@@ -426,8 +524,8 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
         Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
 
         # Create a unique clone directory for this repo+commit combination
-        repo_hash = hashlib.sha1(f"{repo}#{commit}".encode()).hexdigest()[:8]
-        clone_dir = Path(TEMP_DIR) / f"fetch_clone_{repo_hash}"
+        repository_hash = hashlib.sha1(f"{repository}#{commit}".encode()).hexdigest()[:8]
+        clone_dir = Path(TEMP_DIR) / f"fetch_clone_{repository_hash}"
         
         try:
             # Clone the repository once for all files in this group
@@ -436,7 +534,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
             # Clone the repository - handle commit hashes differently than branches/tags
             if commit == "HEAD" or not commit:
                 # Simple clone for HEAD
-                clone_cmd = ["git", "clone", "--depth", "1", repo, str(clone_dir)]
+                clone_cmd = ["git", "clone", "--depth", "1", repository, str(clone_dir)]
                 subprocess.run(clone_cmd, capture_output=True, check=True)
             else:
                 # Check if commit looks like a hash (40 hex chars) or is a branch/tag
@@ -444,7 +542,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                 
                 if is_commit_hash:
                     # For commit hashes, clone without depth and then checkout
-                    clone_cmd = ["git", "clone", repo, str(clone_dir)]
+                    clone_cmd = ["git", "clone", repository, str(clone_dir)]
                     subprocess.run(clone_cmd, capture_output=True, check=True)
                     
                     # Checkout the specific commit
@@ -456,7 +554,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                     )
                 else:
                     # For branches/tags, use --branch with --depth
-                    clone_cmd = ["git", "clone", "--depth", "1", "--branch", commit, repo, str(clone_dir)]
+                    clone_cmd = ["git", "clone", "--depth", "1", "--branch", commit, repository, str(clone_dir)]
                     subprocess.run(clone_cmd, capture_output=True, check=True)
             
             # Get the actual commit hash
@@ -491,9 +589,9 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         files = [f for f in result.stdout.splitlines() if glob_module.fnmatch.fnmatch(f, path)]
                         
                         if files:
-                            print(f"Found {len(files)} files matching '{path}' in {repo}")
+                            print(f"Found {len(files)} files matching '{path}' in {repository}")
                         else:
-                            print(f"No files found matching '{path}' in {repo}")
+                            print(f"No files found matching '{path}' in {repository}")
                             results.append({
                                 'section': entry['section'],
                                 'path': entry['path'],
@@ -608,29 +706,30 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
     # Determine default jobs if not set (limit to number of repo groups for efficiency)
     if jobs is None:
         try:
-            jobs = min(os.cpu_count() or 1, len(repo_groups))
+            jobs = min(os.cpu_count() or 1, len(repository_groups))
         except Exception:
             jobs = 1
     else:
-        jobs = min(jobs, len(repo_groups))
+        jobs = min(jobs, len(repository_groups))
     
     all_results = []
     with ThreadPoolExecutor(max_workers=jobs) as executor:
         # Submit tasks for each repository group
-        future_to_repo = {executor.submit(fetch_repo_group, repo_key, entries): repo_key 
-                         for repo_key, entries in repo_groups.items()}
+        future_to_repository = {executor.submit(fetch_repository_group, repository_key, entries): repository_key 
+                         for repository_key, entries in repository_groups.items()}
         
         # Collect results as they complete
-        for future in as_completed(future_to_repo):
-            repo_results = future.result()
-            all_results.extend(repo_results)
+        for future in as_completed(future_to_repository):
+            repository_results = future.result()
+            all_results.extend(repository_results)
             
             # Print errors immediately for better user feedback
-            for result in repo_results:
+            for result in repository_results:
                 if not result['success']:
                     print(f"error: fetching {result['path']}: {result['error']}")
     
     # Update config with new commits if save is enabled
+    config_needs_save = config_migrated  # Save if we migrated any sections
     if save:
         updated = False
         for result in all_results:
@@ -640,7 +739,11 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                     updated = True
         
         if updated:
-            save_remote_files(config)
+            config_needs_save = True
+    
+    # Save config if needed (migration or updates)
+    if config_needs_save:
+        save_remote_files(config)
     
     # Auto-commit changes if requested (and not in dry-run mode)
     if not dry_run:
@@ -665,12 +768,19 @@ def status_files():
         print("No remote files tracked.")
         return
     
+    config_migrated = False
     for section in config.sections():
         path = section.split('"')[1]
-        repo = config[section]["repo"]
-        commit = config[section].get("commit", "HEAD")
+        repository = get_repository_from_config(config, section)
+        
+        # Migrate section if needed
+        if migrate_config_section(config, section):
+            config_migrated = True
+            
+        commit = config[section]["commit"]  # Should always exist now
         target_dir = config[section].get("target", None)
         comment = config[section].get("comment", "")
+        branch = config[section].get("branch", None)
         
         # Check if glob was explicitly set, otherwise auto-detect
         if "glob" in config[section]:
@@ -686,19 +796,31 @@ def status_files():
         # Add glob indicator
         glob_indicator = " (glob)" if is_glob else ""
         
-        # Truncate commit hash for display
-        commit_display = commit
-        if len(commit) > 7 and commit != "HEAD":
-            commit_display = commit[:7]
+        # Determine tracking status and display format like git status
+        if branch:
+            # This is a branch-tracking entry - like "On branch main"
+            status_display = f"On branch {branch}"
+            # Always show the current commit hash since commit is always a hash now
+            short_commit = commit[:7] if len(commit) > 7 else commit
+            status_display += f" at {short_commit}"
+        else:
+            # This is a non-branch-tracked entry
+            # Commit should always be a hash now, never "HEAD"
+            short_commit = commit[:7] if len(commit) > 7 else commit
+            status_display = f"HEAD detached at {short_commit}"
         
-        # Format like: path[glob_indicator] repo (commit)
-        line = f"{path_display}{glob_indicator}\t{repo} ({commit_display})"
+        # Format like: path[glob_indicator] repository (status_display)
+        line = f"{path_display}{glob_indicator}\t{repository} ({status_display})"
         
         # Add comment if present
         if comment:
             line += f" # {comment}"
         
         print(line)
+    
+    # Save config if any sections were migrated
+    if config_migrated:
+        save_remote_files(config)
 
 
 def is_glob_pattern(path):
@@ -893,12 +1015,51 @@ def generate_default_commit_message(file_results):
             return f"Update {file_count} remote files"
 
 
+def get_repository_from_config(config, section):
+    """
+    Get repository URL from config section with backward compatibility.
+    
+    Args:
+        config: ConfigParser instance
+        section: Section name
+    
+    Returns:
+        str: Repository URL
+    """
+    # Try new 'repository' key first, fall back to legacy 'repo' key
+    if "repository" in config[section]:
+        return config[section]["repository"]
+    elif "repo" in config[section]:
+        return config[section]["repo"]
+    else:
+        raise KeyError(f"No repository URL found in section {section}")
+
+
+def migrate_config_section(config, section):
+    """
+    Migrate a config section from legacy 'repo' key to new 'repository' key.
+    
+    Args:
+        config: ConfigParser instance
+        section: Section name
+    
+    Returns:
+        bool: True if migration occurred, False if already using new format
+    """
+    if "repo" in config[section] and "repository" not in config[section]:
+        # Migrate from old format to new format
+        config[section]["repository"] = config[section]["repo"]
+        del config[section]["repo"]
+        return True
+    return False
+
+
 def main():
     """Command-line interface for git-fetch-file."""
     if len(sys.argv) < 2:
         print("Usage: git fetch-file <command> [args...]")
         print("Commands:")
-        print("  add <repo> <path> [target_dir] [options]  Add a file or glob to track")
+        print("  add <repository> <path> [target_dir] [options]  Add a file or glob to track")
         print("  pull [options]                            Pull all tracked files")
         print("  list                                      List all tracked files")
         print("  status                                    Alias for list")
@@ -926,9 +1087,9 @@ def main():
 
     if cmd == "add":
         if len(sys.argv) < 4:
-            print("Usage: git fetch-file add <repo> <path> [target_dir] [--commit <commit>] [-b|--branch <branch>] [--glob] [--no-glob] [--comment <text>] [--dry-run]")
+            print("Usage: git fetch-file add <repository> <path> [target_dir] [--commit <commit>] [-b|--branch <branch>] [--glob] [--no-glob] [--comment <text>] [--dry-run]")
             sys.exit(1)
-        repo = sys.argv[2]
+        repository = sys.argv[2]
         path = sys.argv[3]
         
         # Check if the 4th argument is a target directory (doesn't start with --)
@@ -939,6 +1100,7 @@ def main():
             args_start = 5
         
         commit = None
+        branch = None
         glob_flag = None  # None means auto-detect
         comment = ""
         dry_run = False
@@ -950,7 +1112,7 @@ def main():
                 commit = args[i]
             elif args[i] == "--branch" or args[i] == "-b":
                 i += 1
-                commit = args[i]
+                branch = args[i]
             elif args[i] == "--glob":
                 glob_flag = True
             elif args[i] == "--no-glob":
@@ -961,7 +1123,7 @@ def main():
             elif args[i] == "--dry-run":
                 dry_run = True
             i += 1
-        add_file(repo, path, commit, glob_flag, comment, target_dir, dry_run)
+        add_file(repository, path, commit, branch, glob_flag, comment, target_dir, dry_run)
 
     elif cmd == "pull":
         force_flag = "--force" in sys.argv
