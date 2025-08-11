@@ -57,6 +57,56 @@ def hash_file(path):
         return hashlib.sha1(f.read()).hexdigest()
 
 
+def get_short_commit(commit_hash):
+    """Get shortened commit hash (7 chars) for display."""
+    return commit_hash[:7] if len(commit_hash) > 7 else commit_hash
+
+
+def get_files_from_glob(clone_dir, path, repository):
+    """Get list of files matching glob pattern from repository."""
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+        cwd=clone_dir,
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr)
+    
+    files = [f for f in result.stdout.splitlines() if glob_module.fnmatch.fnmatch(f, path)]
+    if files:
+        print(f"Found {len(files)} files matching '{path}' in {repository}")
+    else:
+        print(f"No files found matching '{path}' in {repository}")
+    return files
+
+
+def process_file_copy(source_file, target_path, cache_file, force, file_path, commit):
+    """Handle the actual file copying, caching, and conflict detection."""
+    local_hash = hash_file(target_path)
+    last_hash = None
+    if cache_file.exists():
+        with open(cache_file) as cf:
+            last_hash = cf.read().strip()
+    
+    if local_hash and local_hash != last_hash and not force:
+        print(f"Skipping {file_path.lstrip('/')}: local changes detected. Use --force to overwrite.")
+        return False
+    
+    if source_file.exists():
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_file, target_path)
+        new_hash = hash_file(target_path)
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_file, "w") as cf:
+            cf.write(new_hash)
+        print(f"Fetched {file_path.lstrip('/')} -> {target_path} at {commit}")
+        return True
+    else:
+        print(f"warning: file {file_path} not found in repository")
+        return False
+
+
 def resolve_commit_ref(repository, commit_ref):
     """
     Resolve a commit reference to an actual commit hash.
@@ -154,10 +204,10 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
         # Create git status-like message for dry run
         # Show the resolved commit hash and whether we're tracking a branch
         if is_tracking_branch:
-            short_commit = actual_commit[:7] if len(actual_commit) > 7 else actual_commit
+            short_commit = get_short_commit(actual_commit)
             status_msg = f"On branch {branch} at {short_commit}"
         else:
-            short_commit = actual_commit[:7] if len(actual_commit) > 7 else actual_commit
+            short_commit = get_short_commit(actual_commit)
             status_msg = f"HEAD detached at {short_commit}"
         
         print(f"Would {action} {pattern_type} {path}{target_info} from {repository} ({status_msg})")
@@ -213,11 +263,11 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
     if is_tracking_branch:
         status_msg = f"On branch {branch}"
         # Show current commit if it differs from branch name
-        short_commit = actual_commit[:7] if len(actual_commit) > 7 else actual_commit
+        short_commit = get_short_commit(actual_commit)
         status_msg += f" at {short_commit}"
     else:
         # Show the actual commit hash
-        short_commit = actual_commit[:7] if len(actual_commit) > 7 else actual_commit
+        short_commit = get_short_commit(actual_commit)
         status_msg = f"HEAD detached at {short_commit}"
     
     print(f"Added {pattern_type} {path}{target_info} from {repository} ({status_msg})")
@@ -250,7 +300,6 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
         return fetched_commit
 
     # Ensure TEMP_DIR exists before using it for TemporaryDirectory
-    os.makedirs(TEMP_DIR, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=TEMP_DIR) as temp_clone_dir:
         clone_dir = Path(temp_clone_dir)
         try:
@@ -259,43 +308,14 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
 
             files = [path]
             if is_glob:
-                result = subprocess.run(
-                    ["git", "ls-tree", "-r", "--name-only", "HEAD"],
-                    cwd=clone_dir,
-                    capture_output=True,
-                    text=True
-                )
-                if result.returncode != 0:
-                    raise RuntimeError(result.stderr)
-                files = [f for f in result.stdout.splitlines() if glob_module.fnmatch.fnmatch(f, path)]
-                if files:
-                    print(f"Found {len(files)} files matching '{path}' in {repository}")
-                else:
-                    print(f"No files found matching '{path}' in {repository}")
-                    return fetched_commit
+                files = get_files_from_glob(clone_dir, path, repository)
 
             for f in files:
                 target_path, cache_key = get_target_path_and_cache_key(f, target_dir, is_glob)
                 cache_file = Path(CACHE_DIR) / cache_key
-                local_hash = hash_file(target_path)
-                last_hash = None
-                if cache_file.exists():
-                    with open(cache_file) as cf:
-                        last_hash = cf.read().strip()
-                if local_hash and local_hash != last_hash and not force:
-                    print(f"Skipping {f.lstrip('/')}: local changes detected. Use --force to overwrite.")
-                    continue
                 source_file = clone_dir / f
-                if source_file.exists():
-                    target_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source_file, target_path)
-                    new_hash = hash_file(target_path)
-                    cache_file.parent.mkdir(parents=True, exist_ok=True)
-                    with open(cache_file, "w") as cf:
-                        cf.write(new_hash)
-                    print(f"Fetched {f.lstrip('/')} -> {target_path} at {commit}")
-                else:
-                    print(f"warning: file {f} not found in repository")
+                # Use helper function to handle file copying and caching
+                process_file_copy(source_file, target_path, cache_file, force, f, commit)
         except subprocess.CalledProcessError as e:
             print(f"fatal: failed to clone repository: {e}")
             raise RuntimeError(f"failed to clone repository: {e}")
@@ -381,7 +401,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                 if local_hash and local_hash != last_hash and not force:
                     would_skip.append(f"{entry['path']} from {entry['repository']}")
                 elif local_hash == last_hash and not entry.get('branch'):
-                    short_commit = entry['commit'][:7] if len(entry['commit']) > 7 else entry['commit']
+                    short_commit = get_short_commit(entry['commit'])
                     status_display = f"HEAD detached at {short_commit}"
                     up_to_date.append(f"{entry['path']} from {entry['repository']} ({status_display})")
                 else:
@@ -390,7 +410,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         if save:
                             status_info += " -> [update to latest]"
                     else:
-                        short_commit = entry['commit'][:7] if len(entry['commit']) > 7 else entry['commit']
+                        short_commit = get_short_commit(entry['commit'])
                         status_info = f"HEAD detached at {short_commit}"
                     would_fetch.append(f"{entry['path']} from {entry['repository']} ({status_info})")
             except Exception as e:
@@ -432,9 +452,6 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
         repository, commit = repository_key
         results = []
 
-        import tempfile
-        os.makedirs(TEMP_DIR, exist_ok=True)
-        results = []
         with tempfile.TemporaryDirectory(dir=TEMP_DIR) as temp_clone_dir:
             clone_dir = Path(temp_clone_dir)
             try:
@@ -447,50 +464,14 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         target_dir = entry['target_dir']
                         files = [path]
                         if is_glob:
-                            result = subprocess.run(
-                                ["git", "ls-tree", "-r", "--name-only", "HEAD"],
-                                cwd=clone_dir,
-                                capture_output=True,
-                                text=True
-                            )
-                            if result.returncode != 0:
-                                raise RuntimeError(result.stderr)
-                            files = [f for f in result.stdout.splitlines() if glob_module.fnmatch.fnmatch(f, path)]
-                            if files:
-                                print(f"Found {len(files)} files matching '{path}' in {repository}")
-                            else:
-                                print(f"No files found matching '{path}' in {repository}")
-                                results.append({
-                                    'section': entry['section'],
-                                    'path': entry['path'],
-                                    'commit': entry['commit'],
-                                    'fetched_commit': fetched_commit,
-                                    'success': True,
-                                    'error': None
-                                })
-                                continue
+                            files = get_files_from_glob(clone_dir, path, repository)
+
                         for f in files:
                             target_path, cache_key = get_target_path_and_cache_key(f, target_dir, is_glob)
                             cache_file = Path(CACHE_DIR) / cache_key
-                            local_hash = hash_file(target_path)
-                            last_hash = None
-                            if cache_file.exists():
-                                with open(cache_file) as cf:
-                                    last_hash = cf.read().strip()
-                            if local_hash and local_hash != last_hash and not force:
-                                print(f"Skipping {f.lstrip('/')}: local changes detected. Use --force to overwrite.")
-                                continue
                             source_file = clone_dir / f
-                            if source_file.exists():
-                                target_path.parent.mkdir(parents=True, exist_ok=True)
-                                shutil.copy2(source_file, target_path)
-                                new_hash = hash_file(target_path)
-                                cache_file.parent.mkdir(parents=True, exist_ok=True)
-                                with open(cache_file, "w") as cf:
-                                    cf.write(new_hash)
-                                print(f"Fetched {f.lstrip('/')} -> {target_path} at {commit}")
-                            else:
-                                print(f"warning: file {f} not found in repository")
+                            # Use helper function to handle file copying and caching
+                            process_file_copy(source_file, target_path, cache_file, force, f, commit)
                         results.append({
                             'section': entry['section'],
                             'path': entry['path'],
@@ -618,12 +599,12 @@ def status_files():
             # This is a branch-tracking entry - like "On branch main"
             status_display = f"On branch {branch}"
             # Always show the current commit hash since commit is always a hash now
-            short_commit = commit[:7] if len(commit) > 7 else commit
+            short_commit = get_short_commit(commit)
             status_display += f" at {short_commit}"
         else:
             # This is a non-branch-tracked entry
             # Commit should always be a hash now, never "HEAD"
-            short_commit = commit[:7] if len(commit) > 7 else commit
+            short_commit = get_short_commit(commit)
             status_display = f"HEAD detached at {short_commit}"
         
         # Format like: path[glob_indicator] repository (status_display)
@@ -650,7 +631,6 @@ def get_target_path_and_cache_key(path, target_dir, is_glob):
     Helper to determine the target path and cache key for a file or glob.
     Returns (target_path, cache_key)
     """
-    from pathlib import Path
     relative_path = path.lstrip('/')
     if target_dir:
         if is_glob:
