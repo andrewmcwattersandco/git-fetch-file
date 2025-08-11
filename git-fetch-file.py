@@ -254,12 +254,12 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
         else:
             # Check if commit looks like a hash (40 hex chars) or is a branch/tag
             is_commit_hash = len(commit) == 40 and all(c in '0123456789abcdef' for c in commit.lower())
-            
+
             if is_commit_hash:
                 # For commit hashes, clone without depth and then checkout
                 clone_cmd = ["git", "clone", repository, str(clone_dir)]
                 subprocess.run(clone_cmd, capture_output=True, check=True)
-                
+
                 # Checkout the specific commit
                 subprocess.run(
                     ["git", "checkout", commit],
@@ -271,7 +271,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
                 # For branches/tags, use --branch with --depth
                 clone_cmd = ["git", "clone", "--depth", "1", "--branch", commit, repository, str(clone_dir)]
                 subprocess.run(clone_cmd, capture_output=True, check=True)
-        
+
         # Get the actual commit hash
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -281,7 +281,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
             check=True
         )
         fetched_commit = result.stdout.strip()
-        
+
         # Determine which files to process
         files = [path]
         if is_glob:
@@ -295,18 +295,18 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
             if result.returncode != 0:
                 raise RuntimeError(result.stderr)
             files = [f for f in result.stdout.splitlines() if glob_module.fnmatch.fnmatch(f, path)]
-            
+
             if files:
                 print(f"Found {len(files)} files matching '{path}' in {repository}")
             else:
                 print(f"No files found matching '{path}' in {repository}")
                 return fetched_commit
-        
+
         # Process all files from the same clone
         for f in files:
             # Ensure we're working with relative paths to avoid system directory conflicts
             relative_path = f.lstrip('/')
-            
+
             # Determine target path based on target_dir
             if target_dir:
                 if is_glob:
@@ -314,15 +314,21 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
                     target_path = Path(target_dir) / relative_path
                     cache_key = f"{target_dir}_{relative_path}".replace("/", "_")
                 else:
-                    # For single files, place file in target directory, preserving filename
-                    filename = Path(relative_path).name
-                    target_path = Path(target_dir) / filename
-                    cache_key = f"{target_dir}_{filename}".replace("/", "_")
+                    # For single files, allow full path (file rename) if target_dir looks like a file path
+                    target_path = Path(target_dir)
+                    if target_path.suffix:
+                        # Looks like a file path (has extension), use as is
+                        cache_key = str(target_path).replace("/", "_")
+                    else:
+                        # Directory, preserve filename
+                        filename = Path(relative_path).name
+                        target_path = target_path / filename
+                        cache_key = f"{target_dir}_{filename}".replace("/", "_")
             else:
                 # Use original path structure
                 target_path = Path(relative_path)
                 cache_key = relative_path.replace("/", "_")
-            
+
             cache_file = Path(CACHE_DIR) / cache_key
             local_hash = hash_file(target_path)
             last_hash = None
@@ -339,7 +345,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
             if source_file.exists():
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_file, target_path)
-                
+
                 new_hash = hash_file(target_path)
                 cache_file.parent.mkdir(parents=True, exist_ok=True)
                 with open(cache_file, "w") as cf:
@@ -348,7 +354,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
                 print(f"Fetched {relative_path} -> {target_path} at {commit}")
             else:
                 print(f"warning: file {f} not found in repository")
-    
+
     except subprocess.CalledProcessError as e:
         print(f"fatal: failed to clone repository: {e}")
         raise RuntimeError(f"failed to clone repository: {e}")
@@ -356,7 +362,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
         # Clean up clone directory
         if clone_dir.exists():
             shutil.rmtree(clone_dir)
-        
+
         # Clean up temp directory contents
         if temp_dir.exists():
             for item in temp_dir.iterdir():
@@ -450,21 +456,27 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         target_path = Path(entry['target_dir']) / entry['path']
                         cache_key = f"{entry['target_dir']}_{entry['path']}".replace("/", "_")
                     else:
-                        # For single files, place file in target directory, preserving filename
-                        filename = Path(entry['path']).name
-                        target_path = Path(entry['target_dir']) / filename
-                        cache_key = f"{entry['target_dir']}_{filename}".replace("/", "_")
+                        # For single files, allow full path (file rename) if target_dir looks like a file path
+                        target_path = Path(entry['target_dir'])
+                        if target_path.suffix:
+                            # Looks like a file path (has extension), use as is
+                            cache_key = str(target_path).replace("/", "_")
+                        else:
+                            # Directory, preserve filename
+                            filename = Path(entry['path']).name
+                            target_path = target_path / filename
+                            cache_key = f"{entry['target_dir']}_{filename}".replace("/", "_")
                 else:
                     target_path = Path(entry['path'])
                     cache_key = entry['path'].replace("/", "_")
-                
+
                 cache_file = Path(CACHE_DIR) / cache_key
                 local_hash = hash_file(target_path)
                 last_hash = None
                 if cache_file.exists():
                     with open(cache_file) as cf:
                         last_hash = cf.read().strip()
-                
+
                 # Simulate what would happen
                 if local_hash and local_hash != last_hash and not force:
                     would_skip.append(f"{entry['path']} from {entry['repository']}")
@@ -485,7 +497,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         short_commit = entry['commit'][:7] if len(entry['commit']) > 7 else entry['commit']
                         status_info = f"HEAD detached at {short_commit}"
                     would_fetch.append(f"{entry['path']} from {entry['repository']} ({status_info})")
-                        
+
             except Exception as e:
                 errors.append(f"{entry['path']} from {entry['repository']}: {str(e)}")
         
@@ -524,7 +536,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
         """Fetch all files from a single repository group as a batch."""
         repository, commit = repository_key
         results = []
-        
+
         temp_dir = Path(TEMP_DIR)
         temp_dir.mkdir(exist_ok=True)
         Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
@@ -532,11 +544,11 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
         # Create a unique clone directory for this repo+commit combination
         repository_hash = hashlib.sha1(f"{repository}#{commit}".encode()).hexdigest()[:8]
         clone_dir = Path(TEMP_DIR) / f"fetch_clone_{repository_hash}"
-        
+
         try:
             # Clone the repository once for all files in this group
             clone_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Clone the repository - handle commit hashes differently than branches/tags
             if commit == "HEAD" or not commit:
                 # Simple clone for HEAD
@@ -545,12 +557,12 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
             else:
                 # Check if commit looks like a hash (40 hex chars) or is a branch/tag
                 is_commit_hash = len(commit) == 40 and all(c in '0123456789abcdef' for c in commit.lower())
-                
+
                 if is_commit_hash:
                     # For commit hashes, clone without depth and then checkout
                     clone_cmd = ["git", "clone", repository, str(clone_dir)]
                     subprocess.run(clone_cmd, capture_output=True, check=True)
-                    
+
                     # Checkout the specific commit
                     subprocess.run(
                         ["git", "checkout", commit],
@@ -562,7 +574,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                     # For branches/tags, use --branch with --depth
                     clone_cmd = ["git", "clone", "--depth", "1", "--branch", commit, repository, str(clone_dir)]
                     subprocess.run(clone_cmd, capture_output=True, check=True)
-            
+
             # Get the actual commit hash
             result = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
@@ -572,14 +584,14 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                 check=True
             )
             fetched_commit = result.stdout.strip()
-            
+
             # Process each file entry
             for entry in entries:
                 try:
                     path = entry['path']
                     is_glob = entry['is_glob']
                     target_dir = entry['target_dir']
-                    
+
                     # Determine which files to process
                     files = [path]
                     if is_glob:
@@ -593,7 +605,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         if result.returncode != 0:
                             raise RuntimeError(result.stderr)
                         files = [f for f in result.stdout.splitlines() if glob_module.fnmatch.fnmatch(f, path)]
-                        
+
                         if files:
                             print(f"Found {len(files)} files matching '{path}' in {repository}")
                         else:
@@ -607,12 +619,12 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                                 'error': None
                             })
                             continue
-                    
+
                     # Process all files for this entry
                     for f in files:
                         # Ensure we're working with relative paths to avoid system directory conflicts
                         relative_path = f.lstrip('/')
-                        
+
                         # Determine target path based on target_dir
                         if target_dir:
                             if is_glob:
@@ -620,15 +632,21 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                                 target_path = Path(target_dir) / relative_path
                                 cache_key = f"{target_dir}_{relative_path}".replace("/", "_")
                             else:
-                                # For single files, place file in target directory, preserving filename
-                                filename = Path(relative_path).name
-                                target_path = Path(target_dir) / filename
-                                cache_key = f"{target_dir}_{filename}".replace("/", "_")
+                                # For single files, allow full path (file rename) if target_dir looks like a file path
+                                target_path = Path(target_dir)
+                                if target_path.suffix:
+                                    # Looks like a file path (has extension), use as is
+                                    cache_key = str(target_path).replace("/", "_")
+                                else:
+                                    # Directory, preserve filename
+                                    filename = Path(relative_path).name
+                                    target_path = target_path / filename
+                                    cache_key = f"{target_dir}_{filename}".replace("/", "_")
                         else:
                             # Use original path structure
                             target_path = Path(relative_path)
                             cache_key = relative_path.replace("/", "_")
-                        
+
                         cache_file = Path(CACHE_DIR) / cache_key
                         local_hash = hash_file(target_path)
                         last_hash = None
@@ -645,7 +663,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         if source_file.exists():
                             target_path.parent.mkdir(parents=True, exist_ok=True)
                             shutil.copy2(source_file, target_path)
-                            
+
                             new_hash = hash_file(target_path)
                             cache_file.parent.mkdir(parents=True, exist_ok=True)
                             with open(cache_file, "w") as cf:
@@ -654,7 +672,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                             print(f"Fetched {relative_path} -> {target_path} at {commit}")
                         else:
                             print(f"warning: file {f} not found in repository")
-                    
+
                     results.append({
                         'section': entry['section'],
                         'path': entry['path'],
@@ -663,7 +681,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         'success': True,
                         'error': None
                     })
-                    
+
                 except Exception as e:
                     results.append({
                         'section': entry['section'],
@@ -673,7 +691,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         'success': False,
                         'error': str(e)
                     })
-                    
+
         except Exception as e:
             # If the entire repo group fails, mark all entries as failed
             for entry in entries:
@@ -689,7 +707,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
             # Clean up clone directory
             if clone_dir.exists():
                 shutil.rmtree(clone_dir)
-            
+
             # Clean up temp directory contents
             if temp_dir.exists():
                 for item in temp_dir.iterdir():
@@ -706,7 +724,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                     temp_dir.rmdir()
                 except OSError:
                     pass  # Directory not empty, that's okay
-        
+
         return results
     
     # Determine default jobs if not set (limit to number of repo groups for efficiency)
