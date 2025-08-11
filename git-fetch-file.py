@@ -167,7 +167,13 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
     if section not in config.sections():
         config.add_section(section)
     config[section]["repository"] = repository
+    
+    # Always store the resolved commit hash, never a branch name
     config[section]["commit"] = actual_commit
+    
+    # Defensive check: ensure we're not storing a branch name as commit
+    if not (len(actual_commit) == 40 and all(c in '0123456789abcdef' for c in actual_commit.lower())):
+        print(f"warning: commit value '{actual_commit}' does not look like a valid hash")
     
     # Set branch tracking information
     if is_tracking_branch:
@@ -1037,7 +1043,10 @@ def get_repository_from_config(config, section):
 
 def migrate_config_section(config, section):
     """
-    Migrate a config section from legacy 'repo' key to new 'repository' key.
+    Migrate a config section from legacy format to current format.
+    This includes:
+    1. Migrating 'repo' key to 'repository' key
+    2. Moving branch names from 'commit' field to 'branch' key, resolving commit to hash
     
     Args:
         config: ConfigParser instance
@@ -1046,12 +1055,38 @@ def migrate_config_section(config, section):
     Returns:
         bool: True if migration occurred, False if already using new format
     """
+    migrated = False
+    
+    # Migrate repo -> repository
     if "repo" in config[section] and "repository" not in config[section]:
-        # Migrate from old format to new format
         config[section]["repository"] = config[section]["repo"]
         del config[section]["repo"]
-        return True
-    return False
+        migrated = True
+    
+    # Check if commit field contains a branch name instead of a commit hash
+    if "commit" in config[section] and "branch" not in config[section]:
+        commit_value = config[section]["commit"]
+        repository = get_repository_from_config(config, section)
+        
+        # Check if commit looks like a hash (40 hex chars) or might be a branch/tag
+        is_likely_hash = (len(commit_value) == 40 and 
+                         all(c in '0123456789abcdef' for c in commit_value.lower()))
+        
+        # If it doesn't look like a hash, or if it's "HEAD", treat it as a branch reference
+        if not is_likely_hash or commit_value == "HEAD":
+            try:
+                actual_commit = resolve_commit_ref(repository, commit_value)
+                if actual_commit != commit_value:
+                    # This was a branch/tag reference, not a commit hash
+                    config[section]["branch"] = commit_value  # Store the original branch name
+                    config[section]["commit"] = actual_commit  # Store the resolved commit hash
+                    migrated = True
+                    print(f"Migrated '{commit_value}' from commit to branch tracking with hash '{actual_commit[:7]}' for {section}")
+            except subprocess.CalledProcessError as e:
+                # If we can't resolve the commit, leave it as-is but warn
+                print(f"warning: could not resolve commit reference '{commit_value}' for {section}: {e}")
+    
+    return migrated
 
 
 def main():
