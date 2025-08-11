@@ -475,6 +475,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         results.append({
                             'section': entry['section'],
                             'path': entry['path'],
+                            'repository': entry['repository'],
                             'commit': entry['commit'],
                             'fetched_commit': fetched_commit,
                             'success': True,
@@ -484,6 +485,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         results.append({
                             'section': entry['section'],
                             'path': entry['path'],
+                            'repository': entry['repository'],
                             'commit': entry['commit'],
                             'fetched_commit': None,
                             'success': False,
@@ -494,6 +496,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                     results.append({
                         'section': entry['section'],
                         'path': entry['path'],
+                        'repository': entry['repository'],
                         'commit': entry['commit'],
                         'fetched_commit': None,
                         'success': False,
@@ -782,13 +785,39 @@ def generate_default_commit_message(file_results):
     if not successful_results:
         return "Update remote files"
     
-    # Count files
+    # Count files and analyze repositories
     file_count = len(successful_results)
     
+    # Group by repository to create more informative messages
+    repo_groups = {}
+    for result in successful_results:
+        # Extract repository name from URL (similar to how git displays remotes)
+        repo_url = result.get('repository', '')
+        if repo_url:
+            # Extract repo name from URL (e.g., "owner/repo" from github URLs)
+            if 'github.com' in repo_url or 'gitlab.com' in repo_url or 'bitbucket.org' in repo_url:
+                # Handle git@github.com:owner/repo.git or https://github.com/owner/repo.git
+                repo_name = repo_url.split('/')[-2:] if '/' in repo_url else [repo_url]
+                if len(repo_name) == 2:
+                    repo_name = f"{repo_name[0]}/{repo_name[1].replace('.git', '')}"
+                else:
+                    repo_name = repo_name[0].replace('.git', '')
+            else:
+                # For other URLs, use the last component
+                repo_name = repo_url.split('/')[-1].replace('.git', '')
+        else:
+            repo_name = 'unknown'
+        
+        if repo_name not in repo_groups:
+            repo_groups[repo_name] = []
+        repo_groups[repo_name].append(result)
+    
+    # Generate message based on complexity
     if file_count == 1:
         result = successful_results[0]
         file_path = result['path']
         commit_hash = result.get('fetched_commit', '')
+        repo_name = list(repo_groups.keys())[0]
         
         # Extract just the filename for cleaner display
         if '/' in file_path:
@@ -796,44 +825,67 @@ def generate_default_commit_message(file_results):
         else:
             file_name = file_path
         
-        # Include commit info if available and it's not HEAD
-        if commit_hash and len(commit_hash) >= 7 and commit_hash != result.get('commit', ''):
+        # Include commit info if available - always show it for single files
+        if commit_hash and len(commit_hash) >= 7:
             short_hash = commit_hash[:7]
-            return f"Update {file_name} to {short_hash}"
+            return f"Update {file_name} from {repo_name}@{short_hash}"
         else:
-            return f"Update {file_name}"
+            return f"Update {file_name} from {repo_name}"
     
-    elif file_count <= 3:
-        # List individual files for small counts
-        file_names = []
-        for result in successful_results:
-            file_path = result['path']
-            if '/' in file_path:
-                file_name = file_path.split('/')[-1]
-            else:
-                file_name = file_path
-            file_names.append(file_name)
+    elif len(repo_groups) == 1:
+        # All files from same repository
+        repo_name = list(repo_groups.keys())[0]
+        files = repo_groups[repo_name]
         
-        if file_count == 2:
-            return f"Update {file_names[0]} and {file_names[1]}"
-        else:  # file_count == 3
-            return f"Update {', '.join(file_names[:-1])}, and {file_names[-1]}"
+        if file_count <= 3:
+            # List individual files for small counts
+            file_names = []
+            for result in files:
+                file_path = result['path']
+                if '/' in file_path:
+                    file_name = file_path.split('/')[-1]
+                else:
+                    file_name = file_path
+                file_names.append(file_name)
+            
+            # Get commit info from first file (assuming same commit for same repo)
+            commit_hash = files[0].get('fetched_commit', '')
+            commit_suffix = f"@{commit_hash[:7]}" if commit_hash and len(commit_hash) >= 7 else ""
+            
+            if file_count == 2:
+                return f"Update {file_names[0]} and {file_names[1]} from {repo_name}{commit_suffix}"
+            else:  # file_count == 3
+                return f"Update {', '.join(file_names[:-1])}, and {file_names[-1]} from {repo_name}{commit_suffix}"
+        else:
+            # Use directory-based grouping for larger counts from same repo
+            dirs = set()
+            for result in files:
+                file_path = result['path']
+                if '/' in file_path:
+                    dir_path = '/'.join(file_path.split('/')[:-1])
+                    dirs.add(dir_path)
+            
+            commit_hash = files[0].get('fetched_commit', '')
+            commit_suffix = f"@{commit_hash[:7]}" if commit_hash and len(commit_hash) >= 7 else ""
+            
+            if len(dirs) == 1 and dirs != {''}:
+                dir_name = dirs.pop()
+                return f"Update {file_count} files in {dir_name}/ from {repo_name}{commit_suffix}"
+            else:
+                return f"Update {file_count} files from {repo_name}{commit_suffix}"
     
     else:
-        # For larger counts, use summary format with directory info if applicable
-        # Check if files are from the same directory structure
-        dirs = set()
-        for result in successful_results:
-            file_path = result['path']
-            if '/' in file_path:
-                dir_path = '/'.join(file_path.split('/')[:-1])
-                dirs.add(dir_path)
-        
-        if len(dirs) == 1 and dirs != {''}:
-            dir_name = dirs.pop()
-            return f"Update {file_count} files in {dir_name}/"
+        # Multiple repositories
+        repo_count = len(repo_groups)
+        if repo_count <= 3:
+            # List repositories if not too many
+            repo_names = list(repo_groups.keys())
+            if repo_count == 2:
+                return f"Update {file_count} files from {repo_names[0]} and {repo_names[1]}"
+            else:  # repo_count == 3
+                return f"Update {file_count} files from {', '.join(repo_names[:-1])}, and {repo_names[-1]}"
         else:
-            return f"Update {file_count} remote files"
+            return f"Update {file_count} files from {repo_count} repositories"
 
 
 def get_repository_from_config(config, section):
