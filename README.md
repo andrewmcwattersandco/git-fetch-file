@@ -364,5 +364,11 @@ git fetch-file pull --save
 # config.js and version.js stay at their pinned commits
 ```
 
+## Contributors
+
+Thanks to the following people who have contributed to this project:
+
+- [@khusmann](https://github.com/khusmann) - Reported concurrency bug with multiple files from same repository ([#2](https://github.com/andrewmcwattersandco/git-fetch-file/issues/2))
+
 ## License
 GNU General Public License v2.0
