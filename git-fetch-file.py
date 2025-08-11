@@ -7,6 +7,7 @@ A tool to fetch individual files or globs from other Git repositories,
 tracking their source commit in a .git-remote-files manifest.
 """
 
+import argparse
 import configparser
 import subprocess
 import sys
@@ -253,33 +254,8 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
     with tempfile.TemporaryDirectory(dir=TEMP_DIR) as temp_clone_dir:
         clone_dir = Path(temp_clone_dir)
         try:
-            # Clone the repository - handle commit hashes differently than branches/tags
-            if commit == "HEAD" or not commit:
-                clone_cmd = ["git", "clone", "--depth", "1", repository, str(clone_dir)]
-                subprocess.run(clone_cmd, capture_output=True, check=True)
-            else:
-                is_commit_hash = len(commit) == 40 and all(c in '0123456789abcdef' for c in commit.lower())
-                if is_commit_hash:
-                    clone_cmd = ["git", "clone", repository, str(clone_dir)]
-                    subprocess.run(clone_cmd, capture_output=True, check=True)
-                    subprocess.run(
-                        ["git", "checkout", commit],
-                        cwd=clone_dir,
-                        capture_output=True,
-                        check=True
-                    )
-                else:
-                    clone_cmd = ["git", "clone", "--depth", "1", "--branch", commit, repository, str(clone_dir)]
-                    subprocess.run(clone_cmd, capture_output=True, check=True)
-
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=clone_dir,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            fetched_commit = result.stdout.strip()
+            # Clone the repository and get the actual commit hash
+            fetched_commit = clone_repository_at_commit(repository, commit, clone_dir)
 
             files = [path]
             if is_glob:
@@ -462,32 +438,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
         with tempfile.TemporaryDirectory(dir=TEMP_DIR) as temp_clone_dir:
             clone_dir = Path(temp_clone_dir)
             try:
-                if commit == "HEAD" or not commit:
-                    clone_cmd = ["git", "clone", "--depth", "1", repository, str(clone_dir)]
-                    subprocess.run(clone_cmd, capture_output=True, check=True)
-                else:
-                    is_commit_hash = len(commit) == 40 and all(c in '0123456789abcdef' for c in commit.lower())
-                    if is_commit_hash:
-                        clone_cmd = ["git", "clone", repository, str(clone_dir)]
-                        subprocess.run(clone_cmd, capture_output=True, check=True)
-                        subprocess.run(
-                            ["git", "checkout", commit],
-                            cwd=clone_dir,
-                            capture_output=True,
-                            check=True
-                        )
-                    else:
-                        clone_cmd = ["git", "clone", "--depth", "1", "--branch", commit, repository, str(clone_dir)]
-                        subprocess.run(clone_cmd, capture_output=True, check=True)
-
-                result = subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
-                    cwd=clone_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                fetched_commit = result.stdout.strip()
+                fetched_commit = clone_repository_at_commit(repository, commit, clone_dir)
 
                 for entry in entries:
                     try:
@@ -966,117 +917,150 @@ def migrate_config_section(config, section):
     return migrated
 
 
+def clone_repository_at_commit(repository, commit, clone_dir):
+    """
+    Clone a repository at a specific commit, branch, or tag.
+    
+    Args:
+        repository (str): Remote repository URL.
+        commit (str): Commit hash, branch, tag, or "HEAD".
+        clone_dir (Path): Directory to clone into.
+    
+    Returns:
+        str: The actual commit hash that was checked out.
+    
+    Raises:
+        subprocess.CalledProcessError: If cloning fails.
+    """
+    if commit == "HEAD" or not commit:
+        clone_cmd = ["git", "clone", "--depth", "1", repository, str(clone_dir)]
+        subprocess.run(clone_cmd, capture_output=True, check=True)
+    else:
+        is_commit_hash = len(commit) == 40 and all(c in '0123456789abcdef' for c in commit.lower())
+        if is_commit_hash:
+            clone_cmd = ["git", "clone", repository, str(clone_dir)]
+            subprocess.run(clone_cmd, capture_output=True, check=True)
+            subprocess.run(
+                ["git", "checkout", commit],
+                cwd=clone_dir,
+                capture_output=True,
+                check=True
+            )
+        else:
+            clone_cmd = ["git", "clone", "--depth", "1", "--branch", commit, repository, str(clone_dir)]
+            subprocess.run(clone_cmd, capture_output=True, check=True)
+    
+    # Get the actual commit hash
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=clone_dir,
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    return result.stdout.strip()
+
+
+def create_parser():
+    """Create the argument parser for git-fetch-file."""
+    parser = argparse.ArgumentParser(
+        description='Fetch individual files or globs from other Git repositories',
+        prog='git fetch-file'
+    )
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Add subcommand
+    add_parser = subparsers.add_parser('add', help='Add a file or glob to track')
+    add_parser.add_argument('repository', help='Remote repository URL')
+    add_parser.add_argument('path', help='File path or glob pattern')
+    add_parser.add_argument('target_dir', nargs='?', help='Target directory to place the file')
+    add_parser.add_argument('--detach', '--commit', dest='commit', 
+                           help='Track specific commit/tag (detached)')
+    add_parser.add_argument('-b', '--branch', help='Track specific branch')
+    add_parser.add_argument('--glob', action='store_true', 
+                           help='Force treat path as glob pattern')
+    add_parser.add_argument('--no-glob', action='store_true',
+                           help='Force treat path as literal file')
+    add_parser.add_argument('--comment', help='Add descriptive comment')
+    add_parser.add_argument('--dry-run', action='store_true',
+                           help='Show what would be done')
+    
+    # Pull subcommand
+    pull_parser = subparsers.add_parser('pull', help='Pull all tracked files')
+    pull_parser.add_argument('--dry-run', action='store_true',
+                            help='Show what would be done without executing')
+    pull_parser.add_argument('--force', action='store_true',
+                            help='Overwrite local changes')
+    pull_parser.add_argument('--save', action='store_true',
+                            help='Update commit hashes for branches')
+    pull_parser.add_argument('--jobs', type=int, metavar='N',
+                            help='Number of parallel jobs (default: auto)')
+    pull_parser.add_argument('--commit', action='store_true',
+                            help='Auto-commit with default message')
+    pull_parser.add_argument('-m', '--message', dest='commit_message',
+                            help='Commit with message')
+    pull_parser.add_argument('--edit', action='store_true',
+                            help='Edit commit message')
+    pull_parser.add_argument('--no-commit', action='store_true',
+                            help="Don't auto-commit changes")
+    
+    # Status/list subcommands
+    subparsers.add_parser('status', help='List all tracked files')
+    subparsers.add_parser('list', help='Alias for status')
+    
+    return parser
+
+
 def main():
     """Command-line interface for git-fetch-file."""
+    parser = create_parser()
+    
+    # Handle no arguments
     if len(sys.argv) < 2:
-        print("Usage: git fetch-file <command> [args...]")
-        print("Commands:")
-        print("  add <repository> <path> [target_dir] [options]  Add a file or glob to track")
-        print("  pull [options]                            Pull all tracked files")
-        print("  list                                      List all tracked files")
-        print("  status                                    Alias for list")
-        print("")
-        print("Add options:")
-        print("  --detach <commit>                         Track specific commit/tag (detached)")
-        print("  --commit <commit>                         Alias for --detach (for compatibility)")
-        print("  -b, --branch <branch>                     Track specific branch")
-        print("  --glob                                    Force treat path as glob pattern")
-        print("  --no-glob                                 Force treat path as literal file")
-        print("  --comment <text>                          Add descriptive comment")
-        print("  --dry-run                                 Show what would be done")
-        print("")
-        print("Pull options:")
-        print("  --dry-run                                 Show what would be done without executing")
-        print("  --force                                   Overwrite local changes")
-        print("  --save                                    Update commit hashes for branches")
-        print("  --jobs=<n>                                Number of parallel jobs (default: auto)")
-        print("  --commit                                  Auto-commit with default message")
-        print("  -m <msg>, --message=<msg>                 Commit with message")
-        print("  --edit                                    Edit commit message")
-        print("  --no-commit                               Don't auto-commit changes")
+        parser.print_help()
         sys.exit(1)
-
-    cmd = sys.argv[1]
-
-    if cmd == "add":
-        if len(sys.argv) < 4:
-            print("Usage: git fetch-file add <repository> <path> [target_dir] [--detach <commit>] [--commit <commit>] [-b|--branch <branch>] [--glob] [--no-glob] [--comment <text>] [--dry-run]")
+    
+    args = parser.parse_args()
+    
+    if args.command == 'add':
+        # Handle glob flag logic
+        glob_flag = None
+        if args.glob and args.no_glob:
+            print("error: --glob and --no-glob are mutually exclusive")
             sys.exit(1)
-        repository = sys.argv[2]
-        path = sys.argv[3]
+        elif args.glob:
+            glob_flag = True
+        elif args.no_glob:
+            glob_flag = False
         
-        # Check if the 4th argument is a target directory (doesn't start with --)
-        target_dir = None
-        args_start = 4
-        if len(sys.argv) > 4 and not sys.argv[4].startswith("--"):
-            target_dir = sys.argv[4]
-            args_start = 5
-        
-        commit = None
-        branch = None
-        glob_flag = None  # None means auto-detect
-        comment = ""
-        dry_run = False
-        args = sys.argv[args_start:]
-        i = 0
-        while i < len(args):
-            if args[i] == "--detach" or args[i] == "--commit":
-                i += 1
-                commit = args[i]
-            elif args[i] == "--branch" or args[i] == "-b":
-                i += 1
-                branch = args[i]
-            elif args[i] == "--glob":
-                glob_flag = True
-            elif args[i] == "--no-glob":
-                glob_flag = False
-            elif args[i] == "--comment":
-                i += 1
-                comment = args[i]
-            elif args[i] == "--dry-run":
-                dry_run = True
-            i += 1
-        add_file(repository, path, commit, branch, glob_flag, comment, target_dir, dry_run)
-
-    elif cmd == "pull":
-        force_flag = "--force" in sys.argv
-        save_flag = "--save" in sys.argv
-        dry_run_flag = "--dry-run" in sys.argv
-        edit_flag = "--edit" in sys.argv
-        no_commit_flag = "--no-commit" in sys.argv
-        auto_commit_flag = "--commit" in sys.argv
-        
-        # Parse commit message from -m or --message
-        commit_message = None
-        for i, arg in enumerate(sys.argv):
-            if arg == "-m" and i + 1 < len(sys.argv):
-                commit_message = sys.argv[i + 1]
-                break
-            elif arg.startswith("--message="):
-                commit_message = arg.split("=", 1)[1]
-                break
-        
-        # Parse --jobs parameter
-        jobs = None  # default: None means auto-detect (os.cpu_count())
-        for arg in sys.argv:
-            if arg.startswith("--jobs="):
-                try:
-                    jobs = int(arg.split("=")[1])
-                    if jobs < 1:
-                        print("error: --jobs must be a positive integer")
-                        sys.exit(1)
-                except ValueError:
-                    print("error: --jobs must be a positive integer")
-                    sys.exit(1)
-        pull_files(force=force_flag, save=save_flag, dry_run=dry_run_flag, jobs=jobs,
-                  commit_message=commit_message, edit=edit_flag, no_commit=no_commit_flag,
-                  auto_commit=auto_commit_flag)
-
-    elif cmd == "status" or cmd == "list":
+        add_file(
+            args.repository, 
+            args.path, 
+            commit=args.commit,
+            branch=args.branch, 
+            glob=glob_flag, 
+            comment=args.comment or "", 
+            target_dir=args.target_dir, 
+            dry_run=args.dry_run
+        )
+    
+    elif args.command == 'pull':
+        pull_files(
+            force=args.force,
+            save=args.save,
+            dry_run=args.dry_run,
+            jobs=args.jobs,
+            commit_message=args.commit_message,
+            edit=args.edit,
+            no_commit=args.no_commit,
+            auto_commit=args.commit
+        )
+    
+    elif args.command in ('status', 'list'):
         status_files()
-
+    
     else:
-        print(f"fatal: unknown command: {cmd}")
+        parser.print_help()
         sys.exit(1)
 
 
