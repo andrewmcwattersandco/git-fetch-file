@@ -94,6 +94,15 @@ def process_file_copy(source_file, target_path, cache_file, force, file_path, co
         return False
     
     if source_file.exists():
+        source_hash = hash_file(source_file)
+        # Check if file is already up to date
+        if local_hash == source_hash:
+            # File is already up to date, but update cache to track it
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_file, "w") as cf:
+                cf.write(source_hash)
+            return "up_to_date"
+        
         target_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_file, target_path)
         new_hash = hash_file(target_path)
@@ -442,7 +451,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
             print()
         
         if not (would_fetch or would_skip or up_to_date or errors):
-            print("No changes needed.")
+            print("Already up to date.")
         
         return
     
@@ -466,18 +475,34 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         if is_glob:
                             files = get_files_from_glob(clone_dir, path, repository)
 
+                        files_processed = 0
+                        files_updated = 0
+                        files_up_to_date = 0
+                        files_skipped = 0
+                        
                         for f in files:
                             target_path, cache_key = get_target_path_and_cache_key(f, target_dir, is_glob)
                             cache_file = Path(CACHE_DIR) / cache_key
                             source_file = clone_dir / f
                             # Use helper function to handle file copying and caching
-                            process_file_copy(source_file, target_path, cache_file, force, f, commit)
+                            result = process_file_copy(source_file, target_path, cache_file, force, f, commit)
+                            files_processed += 1
+                            if result is True:
+                                files_updated += 1
+                            elif result == "up_to_date":
+                                files_up_to_date += 1
+                            else:  # False
+                                files_skipped += 1
                         results.append({
                             'section': entry['section'],
                             'path': entry['path'],
                             'repository': entry['repository'],
                             'commit': entry['commit'],
                             'fetched_commit': fetched_commit,
+                            'files_processed': files_processed,
+                            'files_updated': files_updated,
+                            'files_up_to_date': files_up_to_date,
+                            'files_skipped': files_skipped,
                             'success': True,
                             'error': None
                         })
@@ -488,6 +513,10 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                             'repository': entry['repository'],
                             'commit': entry['commit'],
                             'fetched_commit': None,
+                            'files_processed': 0,
+                            'files_updated': 0,
+                            'files_up_to_date': 0,
+                            'files_skipped': 0,
                             'success': False,
                             'error': str(e)
                         })
@@ -499,6 +528,10 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         'repository': entry['repository'],
                         'commit': entry['commit'],
                         'fetched_commit': None,
+                        'files_processed': 0,
+                        'files_updated': 0,
+                        'files_up_to_date': 0,
+                        'files_skipped': 0,
                         'success': False,
                         'error': str(e)
                     })
@@ -545,6 +578,18 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
     # Save config if needed (migration or updates)
     if config_needs_save:
         save_remote_files(config)
+    
+    # Check overall status and provide feedback (non-dry-run only)
+    if not dry_run:
+        total_updated = sum(result.get('files_updated', 0) for result in all_results if result['success'])
+        total_up_to_date = sum(result.get('files_up_to_date', 0) for result in all_results if result['success'])
+        total_skipped = sum(result.get('files_skipped', 0) for result in all_results if result['success'])
+        total_errors = len([result for result in all_results if not result['success']])
+        
+        # Show "Already up to date." if no files were updated and no errors occurred
+        if total_updated == 0 and total_errors == 0 and not config_migrated:
+            if total_up_to_date > 0 or total_skipped == 0:
+                print("Already up to date.")
     
     # Auto-commit changes if requested (and not in dry-run mode)
     if not dry_run:
