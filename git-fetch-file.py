@@ -93,7 +93,7 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
     Args:
         repository (str): Remote repository URL.
         path (str): File path or glob pattern.
-        commit (str, optional): Specific commit hash to detach at.
+        commit (str, optional): Specific commit hash to detach at (legacy parameter, use --detach).
         branch (str, optional): Branch or tag name to track. Defaults to HEAD.
         glob (bool, optional): Whether path is a glob pattern. Auto-detected if None.
         comment (str): Optional comment describing the file.
@@ -1065,7 +1065,8 @@ def main():
         print("  status                                    Alias for list")
         print("")
         print("Add options:")
-        print("  --commit <commit>                         Track specific commit/tag")
+        print("  --detach <commit>                         Track specific commit/tag (detached)")
+        print("  --commit <commit>                         Alias for --detach (for compatibility)")
         print("  -b, --branch <branch>                     Track specific branch")
         print("  --glob                                    Force treat path as glob pattern")
         print("  --no-glob                                 Force treat path as literal file")
@@ -1076,7 +1077,7 @@ def main():
         print("  --dry-run                                 Show what would be done without executing")
         print("  --force                                   Overwrite local changes")
         print("  --save                                    Update commit hashes for branches")
-        print("  --jobs=<n>                                Number of parallel jobs (default: 4)")
+        print("  --jobs=<n>                                Number of parallel jobs (default: auto)")
         print("  --commit                                  Auto-commit with default message")
         print("  -m <msg>, --message=<msg>                 Commit with message")
         print("  --edit                                    Edit commit message")
@@ -1087,7 +1088,7 @@ def main():
 
     if cmd == "add":
         if len(sys.argv) < 4:
-            print("Usage: git fetch-file add <repository> <path> [target_dir] [--commit <commit>] [-b|--branch <branch>] [--glob] [--no-glob] [--comment <text>] [--dry-run]")
+            print("Usage: git fetch-file add <repository> <path> [target_dir] [--detach <commit>] [--commit <commit>] [-b|--branch <branch>] [--glob] [--no-glob] [--comment <text>] [--dry-run]")
             sys.exit(1)
         repository = sys.argv[2]
         path = sys.argv[3]
@@ -1107,7 +1108,7 @@ def main():
         args = sys.argv[args_start:]
         i = 0
         while i < len(args):
-            if args[i] == "--commit":
+            if args[i] == "--detach" or args[i] == "--commit":
                 i += 1
                 commit = args[i]
             elif args[i] == "--branch" or args[i] == "-b":

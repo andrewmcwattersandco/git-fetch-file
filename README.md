@@ -26,6 +26,7 @@ It’s like a mini submodule, but for just the files you want.
 - **Dry-run mode** to preview changes without executing them
 - **Concurrent fetching** with configurable parallelism (`--jobs`)
 - **Git-style output** with clean, organized status reporting
+- **Backward compatibility** with automatic migration of old manifest formats
 - Simple CLI interface that feels like native git commands
 
 ## Installation
@@ -56,7 +57,7 @@ Track a file (or glob) from a remote Git repository.
 
 **SYNOPSIS**
 ```
-git fetch-file add <repo> <path> [<target_dir>] [<options>]
+git fetch-file add <repository> <path> [<target_dir>] [<options>]
 ```
 
 **DESCRIPTION**
@@ -65,8 +66,11 @@ Adds a file or glob pattern from a remote Git repository to the tracking manifes
 
 **OPTIONS**
 
-`--commit <commit>`
+`--detach <commit>`
 : Specify a commit hash or tag to track. This creates a "detached" tracking that stays pinned to that exact commit/tag, similar to git's detached HEAD state.
+
+`--commit <commit>`
+: Alias for `--detach` (maintained for backward compatibility).
 
 `-b <branch>`, `--branch <branch>`
 : Track a specific branch. This will always fetch the latest commit from that branch tip when pulling (especially useful with `--save` to update the manifest).
@@ -154,13 +158,15 @@ Each tracked file is recorded in .git-remote-files (INI format). Example entry:
 
 ```ini
 [file "lib/util.py"]
-repo = https://github.com/example/tools.git
+repository = https://github.com/example/tools.git
 commit = a1b2c3d
 target = vendor
 comment = Common utility function
 ```
 
 This file should be committed to your repository.
+
+**Note**: Starting with v1.3.0, the manifest uses `repository` as the key (instead of the legacy `repo` key). Old manifests are automatically migrated when read for full backward compatibility.
 
 ## Tracking Modes
 
@@ -188,7 +194,7 @@ When you track a specific commit hash or tag with `--commit`, git-fetch-file pin
 
 Example:
 ```sh
-git fetch-file add repo.git src/utils.js --commit v1.2.3
+git fetch-file add repo.git src/utils.js --detach v1.2.3
 git fetch-file pull --save  # No change, still at v1.2.3
 ```
 
@@ -226,7 +232,7 @@ Designed to feel like native git commands:
 git fetch-file add https://github.com/user/project.git utils/logger.py -b main --comment "Logging helper"
 
 # Track a specific commit (stays pinned to that exact commit)
-git fetch-file add https://github.com/user/project.git utils/config.py --commit a1b2c3d --comment "Config at stable release"
+git fetch-file add https://github.com/user/project.git utils/config.py --detach a1b2c3d --comment "Config at stable release"
 
 # Track a specific tag (stays pinned to that tag)
 git fetch-file add https://github.com/user/project.git utils/version.py --commit v1.2.3 --comment "Version helper"
@@ -251,7 +257,7 @@ git fetch-file add https://github.com/user/project.git "src/*.js" --glob --dry-r
 Output:
 ```
 Would validate repository access: https://github.com/user/project.git
-Repository access confirmed
+repository access confirmed
 Would add glob pattern src/*.js from https://github.com/user/project.git (commit: HEAD)
 ```
 
