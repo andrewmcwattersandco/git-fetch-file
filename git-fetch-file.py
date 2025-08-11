@@ -498,6 +498,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                             'path': entry['path'],
                             'repository': entry['repository'],
                             'commit': entry['commit'],
+                            'branch': entry.get('branch'),
                             'fetched_commit': fetched_commit,
                             'files_processed': files_processed,
                             'files_updated': files_updated,
@@ -512,6 +513,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                             'path': entry['path'],
                             'repository': entry['repository'],
                             'commit': entry['commit'],
+                            'branch': entry.get('branch'),
                             'fetched_commit': None,
                             'files_processed': 0,
                             'files_updated': 0,
@@ -527,6 +529,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                         'path': entry['path'],
                         'repository': entry['repository'],
                         'commit': entry['commit'],
+                        'branch': entry.get('branch'),
                         'fetched_commit': None,
                         'files_processed': 0,
                         'files_updated': 0,
@@ -862,6 +865,7 @@ def generate_default_commit_message(file_results):
         result = successful_results[0]
         file_path = result['path']
         commit_hash = result.get('fetched_commit', '')
+        branch = result.get('branch')
         repo_name = list(repo_groups.keys())[0]
         
         # Extract just the filename for cleaner display
@@ -870,8 +874,10 @@ def generate_default_commit_message(file_results):
         else:
             file_name = file_path
         
-        # Include commit info if available - always show it for single files
-        if commit_hash and len(commit_hash) >= 7:
+        # Prioritize branch name over commit hash for tracking info
+        if branch:
+            return f"Update {file_name} from {repo_name}#{branch}"
+        elif commit_hash and len(commit_hash) >= 7:
             short_hash = commit_hash[:7]
             return f"Update {file_name} from {repo_name}@{short_hash}"
         else:
@@ -893,14 +899,22 @@ def generate_default_commit_message(file_results):
                     file_name = file_path
                 file_names.append(file_name)
             
-            # Get commit info from first file (assuming same commit for same repo)
-            commit_hash = files[0].get('fetched_commit', '')
-            commit_suffix = f"@{commit_hash[:7]}" if commit_hash and len(commit_hash) >= 7 else ""
+            # Get tracking info from first file (assuming same for same repo)
+            first_result = files[0]
+            branch = first_result.get('branch')
+            commit_hash = first_result.get('fetched_commit', '')
+            
+            if branch:
+                tracking_suffix = f"#{branch}"
+            elif commit_hash and len(commit_hash) >= 7:
+                tracking_suffix = f"@{commit_hash[:7]}"
+            else:
+                tracking_suffix = ""
             
             if file_count == 2:
-                return f"Update {file_names[0]} and {file_names[1]} from {repo_name}{commit_suffix}"
+                return f"Update {file_names[0]} and {file_names[1]} from {repo_name}{tracking_suffix}"
             else:  # file_count == 3
-                return f"Update {', '.join(file_names[:-1])}, and {file_names[-1]} from {repo_name}{commit_suffix}"
+                return f"Update {', '.join(file_names[:-1])}, and {file_names[-1]} from {repo_name}{tracking_suffix}"
         else:
             # Use directory-based grouping for larger counts from same repo
             dirs = set()
@@ -910,14 +924,22 @@ def generate_default_commit_message(file_results):
                     dir_path = '/'.join(file_path.split('/')[:-1])
                     dirs.add(dir_path)
             
-            commit_hash = files[0].get('fetched_commit', '')
-            commit_suffix = f"@{commit_hash[:7]}" if commit_hash and len(commit_hash) >= 7 else ""
+            first_result = files[0]
+            branch = first_result.get('branch')
+            commit_hash = first_result.get('fetched_commit', '')
+            
+            if branch:
+                tracking_suffix = f"#{branch}"
+            elif commit_hash and len(commit_hash) >= 7:
+                tracking_suffix = f"@{commit_hash[:7]}"
+            else:
+                tracking_suffix = ""
             
             if len(dirs) == 1 and dirs != {''}:
                 dir_name = dirs.pop()
-                return f"Update {file_count} files in {dir_name}/ from {repo_name}{commit_suffix}"
+                return f"Update {file_count} files in {dir_name}/ from {repo_name}{tracking_suffix}"
             else:
-                return f"Update {file_count} files from {repo_name}{commit_suffix}"
+                return f"Update {file_count} files from {repo_name}{tracking_suffix}"
     
     else:
         # Multiple repositories
