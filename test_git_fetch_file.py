@@ -41,6 +41,23 @@ optional arguments:
                 print("Diff:\n", ''.join(diff))
             self.assertIn(expected_help, output, "expected help message not found in output")
 
+    def test_add_usage(self):
+        """Test `git fetch-file add` usage."""
+        expected_usage = """usage: git fetch-file add [-h] [--detach COMMIT] [-b BRANCH] [--glob] [--no-glob] [--comment COMMENT] [--force] [--dry-run] repository path [target_dir]
+git fetch-file add: error: the following arguments are required: repository, path
+"""
+        for args in (["git", "fetch-file", "add"], ["git", "fetch-file", "add", "-h"]):
+            result = subprocess.run(args, capture_output=True)
+            output = result.stdout.decode()
+            if expected_usage not in output:
+                diff = difflib.unified_diff(
+                    expected_usage.splitlines(keepends=True),
+                    output.splitlines(keepends=True),
+                    fromfile='expected',
+                    tofile='received'
+                )
+                print("Diff:\n", ''.join(diff))
+            self.assertIn(expected_usage, output, "expected usage message not found in output")
 
 if __name__ == "__main__":
     unittest.main()
