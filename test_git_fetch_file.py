@@ -11,9 +11,7 @@ class TestGitFetchFile(unittest.TestCase):
         `'fetch-file' is aliased to '!python3 .../andrewmcwattersandco/git-fetch-file/git-fetch-file.py'`
         so we only test the command with `git fetch-file -h` here.
         """
-        for args in (["git", "fetch-file"], ["git", "fetch-file", "-h"]):
-            result = subprocess.run(args, capture_output=True)
-            self.assertIn("""usage: git fetch-file [-h] {add,pull,status,list,remove} ...
+        expected_help = """usage: git fetch-file [-h] {add,pull,status,list,remove} ...
 
 Fetch individual files or globs from other Git repositories
 
@@ -28,7 +26,13 @@ positional arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
-""", result.stdout.decode(), "expected help message not found in output")
+"""
+        for args in (["git", "fetch-file"], ["git", "fetch-file", "-h"]):
+            result = subprocess.run(args, capture_output=True)
+            output = result.stdout.decode()
+            if expected_help not in output:
+                print("Received:\n", output)
+            self.assertIn(expected_help, output, "expected help message not found in output")
 
 
 if __name__ == "__main__":
