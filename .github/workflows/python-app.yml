@@ -28,4 +28,4 @@ jobs:
         git config --global alias.fetch-file "!python3 $GITHUB_WORKSPACE/git-fetch-file.py"
     - name: Test with unittest
       run: |
-        python3 -m unittest
+        python3 -m unittest -v
