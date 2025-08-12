@@ -1297,37 +1297,37 @@ def create_parser():
     add_parser.add_argument('repository', help='Remote repository URL')
     add_parser.add_argument('path', help='File path or glob pattern')
     add_parser.add_argument('target_dir', nargs='?', help='Target directory to place the file')
+    add_parser.add_argument('-b', '--branch', help='Track specific branch')
+    add_parser.add_argument('--comment', help='Add descriptive comment')
     add_parser.add_argument('--detach', '--commit', dest='commit', 
                            help='Track specific commit/tag (detached)')
-    add_parser.add_argument('-b', '--branch', help='Track specific branch')
+    add_parser.add_argument('--dry-run', action='store_true',
+                           help='Show what would be done')
+    add_parser.add_argument('--force', action='store_true',
+                           help='Overwrite existing entry for same file path')
     add_parser.add_argument('--glob', action='store_true', 
                            help='Force treat path as glob pattern')
     add_parser.add_argument('--no-glob', action='store_true',
                            help='Force treat path as literal file')
-    add_parser.add_argument('--comment', help='Add descriptive comment')
-    add_parser.add_argument('--force', action='store_true',
-                           help='Overwrite existing entry for same file path')
-    add_parser.add_argument('--dry-run', action='store_true',
-                           help='Show what would be done')
     
     # Pull subcommand
     pull_parser = subparsers.add_parser('pull', help='Pull all tracked files')
-    pull_parser.add_argument('--dry-run', action='store_true',
-                            help='Show what would be done without executing')
-    pull_parser.add_argument('--force', action='store_true',
-                            help='Overwrite local changes')
-    pull_parser.add_argument('--save', action='store_true',
-                            help='Update commit hashes for branches')
-    pull_parser.add_argument('--jobs', type=int, metavar='N',
-                            help='Number of parallel jobs (default: auto)')
     pull_parser.add_argument('--commit', action='store_true',
                             help='Auto-commit with default message')
-    pull_parser.add_argument('-m', '--message', dest='commit_message',
-                            help='Commit with message')
+    pull_parser.add_argument('--dry-run', action='store_true',
+                            help='Show what would be done without executing')
     pull_parser.add_argument('--edit', action='store_true',
                             help='Edit commit message')
+    pull_parser.add_argument('--force', action='store_true',
+                            help='Overwrite local changes')
+    pull_parser.add_argument('--jobs', type=int, metavar='N',
+                            help='Number of parallel jobs (default: auto)')
     pull_parser.add_argument('--no-commit', action='store_true',
                             help="Don't auto-commit changes")
+    pull_parser.add_argument('--save', action='store_true',
+                            help='Update commit hashes for branches')
+    pull_parser.add_argument('-m', '--message', dest='commit_message',
+                            help='Commit with message')
     
     # Status/list subcommands
     subparsers.add_parser('status', help='List all tracked files')
@@ -1337,9 +1337,9 @@ def create_parser():
     remove_parser = subparsers.add_parser('remove', help='Remove a tracked file')
     remove_parser.add_argument('path', help='File path to stop tracking')
     remove_parser.add_argument('target_dir', nargs='?', help='Target directory (required if multiple entries exist)')
-    remove_parser.add_argument('--repository', help='Repository URL to disambiguate entries')
     remove_parser.add_argument('--dry-run', action='store_true',
                               help='Show what would be done')
+    remove_parser.add_argument('--repository', help='Repository URL to disambiguate entries')
     
     return parser
 
