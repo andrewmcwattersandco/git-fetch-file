@@ -64,6 +64,8 @@ git fetch-file add <repository> <path> [<target_dir>] [<options>]
 
 Adds a file or glob pattern from a remote Git repository to the tracking manifest (`.git-remote-files`). The file will be downloaded on the next `pull` operation.
 
+If the same file path is already being tracked from the same repository to the same target directory, an error will be shown. Use `--force` to overwrite the existing entry, or specify a different target directory to track the same file to multiple locations.
+
 **OPTIONS**
 
 `--detach <commit>`
@@ -84,8 +86,31 @@ Adds a file or glob pattern from a remote Git repository to the tracking manifes
 `--comment <text>`
 : Add a descriptive comment to the manifest entry.
 
+`--force`
+: Overwrite existing entries when there's a conflict (same file from same repository to same target directory).
+
 `--dry-run`
 : Show what would be added without actually modifying the manifest.
+
+### git fetch-file remove
+
+Remove a tracked file from the manifest.
+
+**SYNOPSIS**
+```
+git fetch-file remove <path> [<target_dir>]
+```
+
+**DESCRIPTION**
+
+Removes a file or glob pattern from the tracking manifest (`.git-remote-files`). The local file is not deleted - only the tracking entry is removed.
+
+If multiple entries exist for the same path (tracking to different target directories), you must specify the target directory to disambiguate which entry to remove.
+
+**OPTIONS**
+
+`--dry-run`
+: Show what would be removed without actually modifying the manifest.
 
 ### git fetch-file pull
 
@@ -142,6 +167,8 @@ git fetch-file list
 
 Lists all files currently tracked in `.git-remote-files` with their source repositories and commit information. The output format is similar to `git remote -v`.
 
+When the same file path is tracked to multiple target directories or from different repositories, each entry is shown separately.
+
 **OUTPUT FORMAT**
 ```
 <path>[<indicators>]    <repository> (<commit>) [# <comment>]
@@ -154,19 +181,33 @@ Where:
 
 ## .git-remote-files
 
-Each tracked file is recorded in .git-remote-files (INI format). Example entry:
+Each tracked file is recorded in .git-remote-files (INI format). Example entries:
 
 ```ini
-[file "lib/util.py"]
-repository = https://github.com/example/tools.git
-commit = a1b2c3d
-target = vendor
+[file "lib/util.py" from "https://github.com/example/tools.git"]
+commit = a1b2c3d4e5f6789abcdef0123456789abcdef01
+branch = master
 comment = Common utility function
+
+[file "config.json" from "https://github.com/example/tools.git"]
+commit = b2c3d4e5f6789abcdef0123456789abcdef012
+branch = master
+target = vendor
+comment = Configuration from tools repo
+
+[file "helper.js" from "https://github.com/another/project.git"]
+commit = c3d4e5f6789abcdef0123456789abcdef0123
+branch = main
+comment = Helper from another project
 ```
 
 This file should be committed to your repository.
 
-**Note**: Starting with v1.3.0, the manifest uses `repository` as the key (instead of the legacy `repo` key). Old manifests are automatically migrated when read for full backward compatibility.
+**Section Naming**: All entries use the format `[file "path" from "repository_url"]` for uniqueness and clarity. Target directories and other metadata are stored as keys within each section.
+
+This allows tracking the same filename from different repositories or to different target locations without conflicts, while keeping the manifest file human-readable.
+
+**Note**: Starting with v1.4.0, the manifest format has been simplified to eliminate redundant repository keys. Repository information is stored only in section names. Old manifests are automatically migrated when read for full backward compatibility.
 
 ## Tracking Modes
 
@@ -222,6 +263,58 @@ Designed to feel like native git commands:
 - Error and warning messages follow git conventions
 - Works seamlessly with git aliases
 
+## Handling Conflicts
+
+git-fetch-file prevents conflicts when trying to track the same file from the same repository to the same target location. This ensures your manifest remains clean and intentional.
+
+### Conflict Detection
+
+A conflict occurs when you try to add a file that is already being tracked with the same:
+- File path
+- Repository URL  
+- Target directory (or lack thereof)
+
+```sh
+# This will work fine
+git fetch-file add https://github.com/user/repo.git utils.js
+
+# This will show an error (same file, same repo, same target)
+git fetch-file add https://github.com/user/repo.git utils.js
+# Output: fatal: 'utils.js' already tracked from https://github.com/user/repo.git
+#         hint: use --force to overwrite, or specify a different target directory
+```
+
+### Resolution Options
+
+#### Option 1: Use --force to overwrite
+```sh
+git fetch-file add https://github.com/user/repo.git utils.js --force
+# Overwrites the existing entry with new settings
+```
+
+#### Option 2: Use a different target directory
+```sh
+# Track the same file to different locations
+git fetch-file add https://github.com/user/repo.git utils.js vendor
+git fetch-file add https://github.com/user/repo.git utils.js src/external
+# Both entries coexist peacefully
+```
+
+### Removing Tracked Files
+
+Use the `remove` command to clean up entries you no longer need:
+
+```sh
+# Remove a basic tracking entry
+git fetch-file remove utils.js
+
+# Remove a specific target (when multiple exist)
+git fetch-file remove utils.js vendor
+
+# See what's currently tracked
+git fetch-file status
+```
+
 ## Examples
 
 ### Basic Usage
@@ -241,6 +334,41 @@ git fetch-file add https://github.com/user/project.git utils/version.py --commit
 #### Track a file into a specific directory
 ```sh
 git fetch-file add https://github.com/user/project.git utils/logger.py vendor -b main --comment "Third-party logging helper"
+```
+
+#### Track the same file to different target directories
+```sh
+# Track the same file to different target directories (no conflict)
+git fetch-file add https://github.com/user/project.git config.json --comment "Main config"
+git fetch-file add https://github.com/user/project.git config.json vendor --comment "Vendor config copy"
+git fetch-file add https://github.com/user/project.git config.json tests/fixtures --comment "Test fixture config"
+```
+
+#### Handle conflicts and overrides
+```sh
+# This will show an error
+git fetch-file add https://github.com/user/project.git utils.js
+git fetch-file add https://github.com/user/project.git utils.js
+# Output: fatal: 'utils.js' already tracked from https://github.com/user/project.git
+#         hint: use --force to overwrite, or specify a different target directory
+
+# Use --force to overwrite with new settings
+git fetch-file add https://github.com/user/project.git utils.js -b develop --force
+
+# Or track to a different location instead
+git fetch-file add https://github.com/user/project.git utils.js backup -b develop
+```
+
+#### Remove tracked files
+```sh
+# Remove a simple entry
+git fetch-file remove utils.js
+
+# Remove a specific target when multiple exist
+git fetch-file remove config.json vendor
+
+# View current tracking status
+git fetch-file status
 ```
 
 #### Pull it into your repo
@@ -374,7 +502,7 @@ git fetch-file pull --save
 
 Thanks to the following people who have contributed to this project:
 
-- [@khusmann](https://github.com/khusmann) - Reported concurrency bug with multiple files from same repository ([#2](https://github.com/andrewmcwattersandco/git-fetch-file/issues/2))
+- [@khusmann](https://github.com/khusmann) - Reported concurrency bug with multiple files from same repository ([#2](https://github.com/andrewmcwattersandco/git-fetch-file/issues/2)) and issue with adding same filename from different repositories ([#5](https://github.com/andrewmcwattersandco/git-fetch-file/issues/5))
 
 ## License
 GNU General Public License v2.0

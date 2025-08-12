@@ -62,6 +62,30 @@ def get_short_commit(commit_hash):
     return commit_hash[:7] if len(commit_hash) > 7 else commit_hash
 
 
+def extract_path_from_section(section):
+    """
+    Extract file path from section name, handling multiple formats.
+    
+    Formats supported:
+    - Old format: [file "path/to/file.txt"]
+    - New format: [file "path/to/file.txt" from "repository_url"]
+    
+    Args:
+        section (str): Section name from config file
+        
+    Returns:
+        str: The file path
+    """
+    # Split by quotes and take the second element (first quoted string)
+    parts = section.split('"')
+    if len(parts) >= 2:
+        return parts[1]
+    else:
+        # Fallback for malformed section names
+        return section.replace('file ', '').strip('"')
+
+
+
 def get_files_from_glob(clone_dir, path, repository):
     """Get list of files matching glob pattern from repository."""
     result = subprocess.run(
@@ -153,7 +177,65 @@ def resolve_commit_ref(repository, commit_ref):
         raise
 
 
-def add_file(repository, path, commit=None, branch=None, glob=None, comment="", target_dir=None, dry_run=False):
+def get_default_branch(repository):
+    """
+    Get the default branch name of a remote repository.
+    
+    Args:
+        repository (str): Remote repository URL.
+        
+    Returns:
+        str: The default branch name (e.g., "main", "master").
+        
+    Raises:
+        subprocess.CalledProcessError: If the repository cannot be accessed.
+    """
+    try:
+        # Use git ls-remote --symref to get the default branch
+        result = subprocess.run(
+            ["git", "ls-remote", "--symref", repository, "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        # Parse the output to find the symbolic reference
+        # Output format: "ref: refs/heads/main\tHEAD\n<commit_hash>\tHEAD"
+        lines = result.stdout.strip().split('\n')
+        for line in lines:
+            if line.startswith('ref: refs/heads/'):
+                # Extract branch name from "ref: refs/heads/branch_name"
+                return line.split('refs/heads/')[-1].split('\t')[0]
+        
+        # Fallback: if symbolic ref not found, assume "main" or "master"
+        # Try to detect which one exists
+        result = subprocess.run(
+            ["git", "ls-remote", "--heads", repository],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        heads = result.stdout.strip()
+        if 'refs/heads/main' in heads:
+            return "main"
+        elif 'refs/heads/master' in heads:
+            return "master"
+        else:
+            # Use the first branch found
+            for line in heads.split('\n'):
+                if 'refs/heads/' in line:
+                    return line.split('refs/heads/')[-1]
+            
+            # Ultimate fallback - use Git's default
+            return "master"
+            
+    except subprocess.CalledProcessError:
+        # If we can't determine the default branch, fall back to Git's default
+        return "master"
+
+
+def add_file(repository, path, commit=None, branch=None, glob=None, comment="", target_dir=None, dry_run=False, force=False):
     """
     Add a file or glob from a remote repository to .git-remote-files.
 
@@ -161,19 +243,36 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
         repository (str): Remote repository URL.
         path (str): File path or glob pattern.
         commit (str, optional): Specific commit hash to detach at (legacy parameter, use --detach).
-        branch (str, optional): Branch or tag name to track. Defaults to HEAD.
+        branch (str, optional): Branch or tag name to track. If neither branch nor commit 
+                               is specified, the repository's default branch will be used.
         glob (bool, optional): Whether path is a glob pattern. Auto-detected if None.
         comment (str): Optional comment describing the file.
         target_dir (str, optional): Target directory to place the file. Defaults to same path.
         dry_run (bool): If True, only show what would be done without executing.
+        force (bool): If True, overwrite existing entries for the same file path.
     """
     # Normalize path by removing leading slash
     path = path.lstrip('/')
     
     # Determine the commit reference and branch tracking behavior
-    # Priority: explicit commit > explicit branch > default to HEAD
-    commit_ref = commit or branch or "HEAD"
-    is_tracking_branch = branch is not None and not commit
+    # Priority: explicit commit > explicit branch > default branch of repository
+    if commit:
+        commit_ref = commit
+        is_tracking_branch = False
+    elif branch:
+        commit_ref = branch
+        is_tracking_branch = True
+    else:
+        # No branch or commit specified - use repository's default branch like git clone
+        try:
+            default_branch = get_default_branch(repository)
+            commit_ref = default_branch
+            is_tracking_branch = True
+            # Set branch to default_branch so it gets tracked properly
+            branch = default_branch
+        except subprocess.CalledProcessError:
+            print(f"fatal: repository '{repository}' not found or inaccessible")
+            sys.exit(1)
     
     if dry_run:
         print(f"Would validate repository access: {repository}")
@@ -196,7 +295,42 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
             print(f"warning: could not validate repository: {e}")
     
     config = load_remote_files()
-    section = f'file "{path}"'
+    
+    # Create a unique section name using repository URL for uniqueness
+    section = f'file "{path}" from "{repository}"'
+    
+    # Check for conflicts: same file path with same target location
+    conflicting_section = None
+    for existing_section in config.sections():
+        existing_path = extract_path_from_section(existing_section)
+        if existing_path == path:
+            existing_repository = get_repository_from_config(config, existing_section)
+            existing_target_dir = config[existing_section].get("target", None)
+            
+            # Conflict if same target directory (or both have no target directory)
+            if existing_target_dir == target_dir:
+                if existing_repository == repository:
+                    # Same file, same repo, same target - allow force override
+                    if not force:
+                        print(f"fatal: '{path}' already tracked from {existing_repository}", file=sys.stderr)
+                        print("hint: use --force to overwrite", file=sys.stderr)
+                        sys.exit(1)
+                    else:
+                        # Force flag used - remember this section to remove it
+                        conflicting_section = existing_section
+                        break
+                else:
+                    # Same file, different repo, same target - this would cause filesystem conflict
+                    print(f"fatal: '{path}' would conflict with existing file from {existing_repository}", file=sys.stderr)
+                    if target_dir:
+                        print("hint: specify a different target directory", file=sys.stderr)
+                    else:
+                        print("hint: specify a target directory to avoid conflict", file=sys.stderr)
+                    sys.exit(1)
+    
+    # Remove conflicting section if force is used
+    if conflicting_section:
+        config.remove_section(conflicting_section)
     
     if dry_run:
         # Resolve the commit reference to show accurate dry-run information
@@ -233,7 +367,6 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
     
     if section not in config.sections():
         config.add_section(section)
-    config[section]["repository"] = repository
     
     # Always store the resolved commit hash, never a branch name
     config[section]["commit"] = actual_commit
@@ -357,7 +490,7 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
     file_entries = []
     config_migrated = False
     for section in config.sections():
-        path = section.split('"')[1]
+        path = extract_path_from_section(section)
         repository = get_repository_from_config(config, section)
         
         # Migrate section if needed
@@ -609,6 +742,91 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
             commit_changes(commit_message=commit_message, edit=edit, no_commit=no_commit, file_results=all_results)
 
 
+def remove_file(path, target_dir=None, repository=None, dry_run=False):
+    """
+    Remove a tracked file from .git-remote-files.
+
+    Args:
+        path (str): File path to stop tracking.
+        target_dir (str, optional): Target directory to disambiguate entries.
+        repository (str, optional): Repository URL to disambiguate entries.
+        dry_run (bool): If True, only show what would be done without executing.
+    
+    Returns:
+        bool: True if file was found and removed, False otherwise.
+    """
+    # Normalize path by removing leading slash
+    path = path.lstrip('/')
+    
+    config = load_remote_files()
+    
+    # Find all sections that match this path, target, and repository
+    matching_sections = []
+    for section in config.sections():
+        section_path = extract_path_from_section(section)
+        if section_path == path:
+            section_target_dir = config[section].get("target", None)
+            section_repository = get_repository_from_config(config, section)
+            
+            # Check if target_dir matches (if specified)
+            if target_dir is not None and section_target_dir != target_dir:
+                continue
+                
+            # Check if repository matches (if specified)
+            if repository is not None and section_repository != repository:
+                continue
+                
+            matching_sections.append(section)
+    
+    if not matching_sections:
+        error_msg = f"error: file '{path}'"
+        if target_dir:
+            error_msg += f" with target '{target_dir}'"
+        if repository:
+            error_msg += f" from repository '{repository}'"
+        error_msg += " is not currently tracked"
+        print(error_msg)
+        return False
+    
+    if len(matching_sections) == 1:
+        section = matching_sections[0]
+        if dry_run:
+            repository = get_repository_from_config(config, section)
+            section_target_dir = config[section].get("target", None)
+            target_info = f" -> {section_target_dir}" if section_target_dir else ""
+            print(f"Would remove tracking for '{path}{target_info}' from {repository}")
+            return True
+        
+        # Remove the section
+        repository = get_repository_from_config(config, section)
+        section_target_dir = config[section].get("target", None)
+        target_info = f" -> {section_target_dir}" if section_target_dir else ""
+        config.remove_section(section)
+        save_remote_files(config)
+        
+        print(f"Removed tracking for '{path}{target_info}' from {repository}")
+        return True
+    else:
+        # Multiple sections found - need user to specify which one
+        print(f"error: multiple entries found for '{path}'. Please specify which one to remove:")
+        for i, section in enumerate(matching_sections, 1):
+            repository = get_repository_from_config(config, section)
+            section_target_dir = config[section].get("target", None)
+            target_info = f" -> {section_target_dir}" if section_target_dir else ""
+            print(f"  {i}. {path}{target_info} from {repository}")
+        
+        # Provide helpful guidance in git style
+        has_targets = any(config[section].get("target") for section in matching_sections)
+        has_different_repos = len(set(get_repository_from_config(config, section) for section in matching_sections)) > 1
+        
+        if has_targets:
+            print(f"hint: specify target directory: git fetch-file remove '{path}' <target_dir>")
+        if has_different_repos:
+            print(f"hint: specify repository: git fetch-file remove '{path}' --repository <repository_url>")
+        
+        return False
+
+
 def status_files():
     """Print all files tracked in .git-remote-files."""
     config = load_remote_files()
@@ -619,7 +837,7 @@ def status_files():
     
     config_migrated = False
     for section in config.sections():
-        path = section.split('"')[1]
+        path = extract_path_from_section(section)
         repository = get_repository_from_config(config, section)
         
         # Migrate section if needed
@@ -957,7 +1175,7 @@ def generate_default_commit_message(file_results):
 
 def get_repository_from_config(config, section):
     """
-    Get repository URL from config section with backward compatibility.
+    Get repository URL from section name or config key for backward compatibility.
     
     Args:
         config: ConfigParser instance
@@ -966,7 +1184,13 @@ def get_repository_from_config(config, section):
     Returns:
         str: Repository URL
     """
-    # Try new 'repository' key first, fall back to legacy 'repo' key
+    # Extract from section name for new format: [file "path" from "repository_url"]
+    if ' from "' in section:
+        parts = section.split(' from "')
+        if len(parts) == 2 and parts[1].endswith('"'):
+            return parts[1][:-1]  # Remove the trailing quote
+    
+    # Fall back to config keys for backward compatibility
     if "repository" in config[section]:
         return config[section]["repository"]
     elif "repo" in config[section]:
@@ -1081,6 +1305,8 @@ def create_parser():
     add_parser.add_argument('--no-glob', action='store_true',
                            help='Force treat path as literal file')
     add_parser.add_argument('--comment', help='Add descriptive comment')
+    add_parser.add_argument('--force', action='store_true',
+                           help='Overwrite existing entry for same file path')
     add_parser.add_argument('--dry-run', action='store_true',
                            help='Show what would be done')
     
@@ -1106,6 +1332,14 @@ def create_parser():
     # Status/list subcommands
     subparsers.add_parser('status', help='List all tracked files')
     subparsers.add_parser('list', help='Alias for status')
+    
+    # Remove subcommand
+    remove_parser = subparsers.add_parser('remove', help='Remove a tracked file')
+    remove_parser.add_argument('path', help='File path to stop tracking')
+    remove_parser.add_argument('target_dir', nargs='?', help='Target directory (required if multiple entries exist)')
+    remove_parser.add_argument('--repository', help='Repository URL to disambiguate entries')
+    remove_parser.add_argument('--dry-run', action='store_true',
+                              help='Show what would be done')
     
     return parser
 
@@ -1140,7 +1374,8 @@ def main():
             glob=glob_flag, 
             comment=args.comment or "", 
             target_dir=args.target_dir, 
-            dry_run=args.dry_run
+            dry_run=args.dry_run,
+            force=args.force
         )
     
     elif args.command == 'pull':
@@ -1157,6 +1392,9 @@ def main():
     
     elif args.command in ('status', 'list'):
         status_files()
+    
+    elif args.command == 'remove':
+        remove_file(args.path, target_dir=args.target_dir, repository=args.repository, dry_run=args.dry_run)
     
     else:
         parser.print_help()

@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2025-08-11
+
+### Added
+- **Multi-target file tracking**: Same file can now be tracked from different repositories or to different target directories without conflicts
+- **Enhanced conflict detection**: Intelligent conflict detection only prevents duplicates when repository, file path, and target directory are all identical
+- **Remove command**: New `git fetch-file remove <path> [<target_dir>]` command to remove tracked files from the manifest
+- **Force flag for add command**: Added `--force` flag to `add` command for intentionally overwriting existing entries
+- **Repository disambiguation**: `--repository` flag for remove command to disambiguate entries from different repositories
+
+### Changed
+- **BREAKING: Manifest format simplification**: All manifest sections now use unified format `[file "path" from "repository_url"]` for clarity and consistency
+- **Eliminated redundant repository keys**: Repository information is now stored only in section names, eliminating duplicate `repository` keys in manifest entries
+- **Simplified codebase**: Removed unnecessary helper functions, making the code more maintainable
+- **Git-style error messages**: Conflict errors now use concise, git-like format: `fatal: 'file' already tracked from <repo>` with helpful hints
+- **Backward compatibility**: Old manifest formats are still supported and automatically migrated
+
+### Fixed
+- **Issue #5: Cannot add same filename from two different repos**: Resolved conflict detection that incorrectly prevented tracking same filename from different repositories or to different target directories
+
+### Improved
+- **Conflict resolution guidance**: Error messages now provide clear options: use `--force` to overwrite, or specify different target directory
+- **Status output clarity**: Status command shows multiple entries when same file is tracked to different locations
+- **Documentation coverage**: Comprehensive README.md updates with conflict handling examples and new command documentation
+
 ## [1.3.0] - 2025-08-11
 
 ### Added
@@ -64,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.0] - Previous Release
 - Initial tracked version with core functionality
 
+[1.4.0]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.3.0...v1.4.0
 [1.3.1]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.2.1...v1.2.2
