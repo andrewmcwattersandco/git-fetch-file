@@ -498,6 +498,12 @@ git fetch-file pull --save
 # config.js and version.js stay at their pinned commits
 ```
 
+## Unit testing
+
+```sh
+python3 -m unittest
+```
+
 ## Contributors
 
 Thanks to the following people who have contributed to this project:
