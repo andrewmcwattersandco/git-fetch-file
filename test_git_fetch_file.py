@@ -23,8 +23,8 @@ class TestGitFetchFile(unittest.TestCase):
         expected_usage_start = "usage: git fetch-file add [-h] "
         for args in (["git", "fetch-file", "add"], ["git", "fetch-file", "add", "-h"]):
             result = subprocess.run(args, capture_output=True)
-            output = result.stderr.decode()
-            self.assertTrue(output.startswith(expected_usage_start), "expected usage message not found in stderr")
+            output = (result.stdout + result.stderr).decode()
+            self.assertTrue(output.startswith(expected_usage_start), "expected usage message not found in output")
 
 if __name__ == "__main__":
     unittest.main()
