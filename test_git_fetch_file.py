@@ -43,7 +43,10 @@ optional arguments:
 
     def test_add_usage(self):
         """Test `git fetch-file add` usage."""
-        expected_usage = """usage: git fetch-file add [-h] [--detach COMMIT] [-b BRANCH] [--glob] [--no-glob] [--comment COMMENT] [--force] [--dry-run] repository path [target_dir]
+        expected_usage = """usage: git fetch-file add [-h] [--detach COMMIT] [-b BRANCH] [--glob]
+                          [--no-glob] [--comment COMMENT] [--force]
+                          [--dry-run]
+                          repository path [target_dir]
 git fetch-file add: error: the following arguments are required: repository, path
 """
         for args in (["git", "fetch-file", "add"], ["git", "fetch-file", "add", "-h"]):
