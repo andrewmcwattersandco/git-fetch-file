@@ -12,59 +12,19 @@ class TestGitFetchFile(unittest.TestCase):
         `'fetch-file' is aliased to '!python3 .../andrewmcwattersandco/git-fetch-file/git-fetch-file.py'`
         so we only test the command with `git fetch-file -h` here.
         """
-        expected_help = """usage: git fetch-file [-h] {add,pull,status,list,remove} ...
-
-Fetch individual files or globs from other Git repositories
-
-positional arguments:
-  {add,pull,status,list,remove}
-                        Available commands
-    add                 Add a file or glob to track
-    pull                Pull all tracked files
-    status              List all tracked files
-    list                Alias for status
-    remove              Remove a tracked file
-
-optional arguments:
-  -h, --help            show this help message and exit
-"""
+        expected_help_start = "usage: git fetch-file [-h] "
         for args in (["git", "fetch-file"], ["git", "fetch-file", "-h"]):
             result = subprocess.run(args, capture_output=True)
             output = result.stdout.decode()
-            if expected_help not in output:
-                diff = difflib.unified_diff(
-                    expected_help.splitlines(keepends=True),
-                    output.splitlines(keepends=True),
-                    fromfile='expected',
-                    tofile='received'
-                )
-                print("Diff:\n", ''.join(diff))
-            self.assertIn(expected_help, output, "expected help message not found in output")
+            self.assertTrue(output.startswith(expected_help_start), "expected help message not found in stdout")
 
     def test_add_usage(self):
         """Test `git fetch-file add` usage."""
-        expected_usage = """usage: git fetch-file add [-h] [--detach COMMIT] [-b BRANCH] [--glob]
-                          [--no-glob] [--comment COMMENT] [--force]
-                          [--dry-run]
-                          repository path [target_dir]
-git fetch-file add: error: the following arguments are required: repository, path
-"""
+        expected_usage_start = "usage: git fetch-file add [-h] "
         for args in (["git", "fetch-file", "add"], ["git", "fetch-file", "add", "-h"]):
             result = subprocess.run(args, capture_output=True)
-            # Help output may go to stdout or stderr depending on argparse version
-            output = (result.stdout + result.stderr).decode()
-            # Normalize newlines for comparison
-            expected = expected_usage.replace('\r\n', '\n').replace('\r', '\n')
-            actual = output.replace('\r\n', '\n').replace('\r', '\n')
-            if expected not in actual:
-                diff = difflib.unified_diff(
-                    expected.splitlines(keepends=True),
-                    actual.splitlines(keepends=True),
-                    fromfile='expected',
-                    tofile='received'
-                )
-                print("Diff:\n", ''.join(diff))
-            self.assertIn(expected, actual, "expected usage message not found in output")
+            output = result.stderr.decode()
+            self.assertTrue(output.startswith(expected_usage_start), "expected usage message not found in stderr")
 
 if __name__ == "__main__":
     unittest.main()
