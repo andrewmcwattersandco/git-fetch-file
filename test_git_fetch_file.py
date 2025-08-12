@@ -51,16 +51,20 @@ git fetch-file add: error: the following arguments are required: repository, pat
 """
         for args in (["git", "fetch-file", "add"], ["git", "fetch-file", "add", "-h"]):
             result = subprocess.run(args, capture_output=True)
-            output = result.stderr.decode()
-            if expected_usage not in output:
+            # Help output may go to stdout or stderr depending on argparse version
+            output = (result.stdout + result.stderr).decode()
+            # Normalize newlines for comparison
+            expected = expected_usage.replace('\r\n', '\n').replace('\r', '\n')
+            actual = output.replace('\r\n', '\n').replace('\r', '\n')
+            if expected not in actual:
                 diff = difflib.unified_diff(
-                    expected_usage.splitlines(keepends=True),
-                    output.splitlines(keepends=True),
+                    expected.splitlines(keepends=True),
+                    actual.splitlines(keepends=True),
                     fromfile='expected',
                     tofile='received'
                 )
                 print("Diff:\n", ''.join(diff))
-            self.assertIn(expected_usage, output, "expected usage message not found in output")
+            self.assertIn(expected, actual, "expected usage message not found in output")
 
 if __name__ == "__main__":
     unittest.main()
