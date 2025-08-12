@@ -1,5 +1,6 @@
 import unittest
 import subprocess
+import difflib
 
 
 class TestGitFetchFile(unittest.TestCase):
@@ -31,7 +32,13 @@ optional arguments:
             result = subprocess.run(args, capture_output=True)
             output = result.stdout.decode()
             if expected_help not in output:
-                print("Received:\n", output)
+                diff = difflib.unified_diff(
+                    expected_help.splitlines(keepends=True),
+                    output.splitlines(keepends=True),
+                    fromfile='expected',
+                    tofile='received'
+                )
+                print("Diff:\n", ''.join(diff))
             self.assertIn(expected_help, output, "expected help message not found in output")
 
 
