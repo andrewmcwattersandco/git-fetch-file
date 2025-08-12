@@ -16,7 +16,17 @@ class TestGitFetchFile(unittest.TestCase):
         for args in (["git", "fetch-file"], ["git", "fetch-file", "-h"]):
             result = subprocess.run(args, capture_output=True)
             output = result.stdout.decode()
-            self.assertTrue(output.startswith(expected_help_start), "expected help message not found in stdout")
+            if not output.startswith(expected_help_start):
+                diff = "\n".join(
+                    difflib.unified_diff(
+                        [expected_help_start],
+                        [output],
+                        fromfile="expected",
+                        tofile="output",
+                        lineterm=""
+                    )
+                )
+                self.fail(f"expected help message not found in stdout\nDiff:\n{diff}")
 
     def test_add_usage(self):
         """Test `git fetch-file add` usage."""
@@ -24,7 +34,17 @@ class TestGitFetchFile(unittest.TestCase):
         for args in (["git", "fetch-file", "add"], ["git", "fetch-file", "add", "-h"]):
             result = subprocess.run(args, capture_output=True)
             output = (result.stdout + result.stderr).decode()
-            self.assertTrue(output.startswith(expected_usage_start), "expected usage message not found in output")
+            if not output.startswith(expected_usage_start):
+                diff = "\n".join(
+                    difflib.unified_diff(
+                        [expected_usage_start],
+                        [output],
+                        fromfile="expected",
+                        tofile="output",
+                        lineterm=""
+                    )
+                )
+                self.fail(f"expected usage message not found in output\nDiff:\n{diff}")
 
 if __name__ == "__main__":
     unittest.main()
