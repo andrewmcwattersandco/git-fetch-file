@@ -48,7 +48,7 @@ git fetch-file add: error: the following arguments are required: repository, pat
 """
         for args in (["git", "fetch-file", "add"], ["git", "fetch-file", "add", "-h"]):
             result = subprocess.run(args, capture_output=True)
-            output = result.stdout.decode()
+            output = result.stderr.decode()
             if expected_usage not in output:
                 diff = difflib.unified_diff(
                     expected_usage.splitlines(keepends=True),
