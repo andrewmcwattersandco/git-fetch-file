@@ -1309,6 +1309,12 @@ def migrate_config_section(config, section):
         migrated = True
         print(f"Migrated section name from '{section}' to '{new_section}'")
     else:
+        # For sections that are already in new format, remove any redundant repository key
+        if "repository" in section_data:
+            del section_data["repository"]
+            migrated = True
+            print(f"Removed redundant repository key from section '{section}'")
+        
         # Update existing section with migrated data
         for key, value in section_data.items():
             config[section][key] = value
