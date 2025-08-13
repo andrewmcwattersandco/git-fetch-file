@@ -36,7 +36,7 @@ class TestGitRepository(unittest.TestCase):
 
 class TestAdd(TestGitRepository):
     def test_add(self):
-        """Test `git add`."""
+        """Test `git fetch-file add`."""
         pass
 
 
