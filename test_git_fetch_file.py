@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import os
 import shutil
+import configparser
 
 
 class TestArgumentParser(unittest.TestCase):
@@ -38,9 +39,10 @@ class TestAdd(TestGitRepository):
     def test_add(self):
         """Test `git fetch-file add <repository> <path>`."""
         subprocess.run(["git", "fetch-file", "add", "https://github.com/octocat/Hello-World.git", "README"], check=True)
-        with open(".git-remote-files", "r") as f:
-            entries = f.read()
-        self.assertIn("[file \"README\" from \"https://github.com/octocat/Hello-World.git\"]", entries, "section not found in .git-remote-files")
+        config = configparser.ConfigParser()
+        config.read(".git-remote-files")
+        section = 'file "README" from "https://github.com/octocat/Hello-World.git"'
+        self.assertIn(section, config.sections(), "section not found in .git-remote-files")
 
 
 if __name__ == "__main__":
