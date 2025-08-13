@@ -489,13 +489,25 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
     # Collect file entries to process
     file_entries = []
     config_migrated = False
+    
+    # First pass: collect sections to migrate (avoid modifying during iteration)
+    sections_to_migrate = []
+    for section in config.sections():
+        sections_to_migrate.append(section)
+    
+    # Second pass: migrate sections
+    for section in sections_to_migrate:
+        if section not in config.sections():
+            # Section was already migrated and renamed
+            continue
+            
+        if migrate_config_section(config, section):
+            config_migrated = True
+    
+    # Third pass: collect file entries from (potentially renamed) sections
     for section in config.sections():
         path = extract_path_from_section(section)
         repository = get_repository_from_config(config, section)
-        
-        # Migrate section if needed
-        if migrate_config_section(config, section):
-            config_migrated = True
             
         commit = config[section]["commit"]  # Should always exist now
         branch = config[section].get("branch", None)
@@ -840,13 +852,25 @@ def status_files():
         return
     
     config_migrated = False
+    
+    # First pass: collect sections to migrate (avoid modifying during iteration)
+    sections_to_migrate = []
+    for section in config.sections():
+        sections_to_migrate.append(section)
+    
+    # Second pass: migrate sections
+    for section in sections_to_migrate:
+        if section not in config.sections():
+            # Section was already migrated and renamed
+            continue
+            
+        if migrate_config_section(config, section):
+            config_migrated = True
+    
+    # Third pass: display status from (potentially renamed) sections
     for section in config.sections():
         path = extract_path_from_section(section)
         repository = get_repository_from_config(config, section)
-        
-        # Migrate section if needed
-        if migrate_config_section(config, section):
-            config_migrated = True
             
         commit = config[section]["commit"]  # Should always exist now
         target_dir = config[section].get("target", None)
@@ -1207,8 +1231,9 @@ def migrate_config_section(config, section):
     """
     Migrate a config section from legacy format to current format.
     This includes:
-    1. Migrating 'repo' key to 'repository' key
-    2. Moving branch names from 'commit' field to 'branch' key, resolving commit to hash
+    1. Migrating section name from old format to new format
+    2. Migrating 'repo' key to 'repository' key  
+    3. Moving branch names from 'commit' field to 'branch' key, resolving commit to hash
     
     Args:
         config: ConfigParser instance
@@ -1218,28 +1243,75 @@ def migrate_config_section(config, section):
         bool: True if migration occurred, False if already using new format
     """
     migrated = False
+    section_data = dict(config[section])  # Copy section data
+    
+    # Check if section name needs migration (old format: [file "path"])
+    needs_section_migration = not (' from "' in section and section.endswith('"'))
     
     # Migrate repo -> repository
-    if "repo" in config[section] and "repository" not in config[section]:
-        config[section]["repository"] = config[section]["repo"]
-        del config[section]["repo"]
+    if "repo" in section_data and "repository" not in section_data:
+        section_data["repository"] = section_data["repo"]
+        del section_data["repo"]
         migrated = True
+    
+    # Get repository URL for further processing
+    if "repository" in section_data:
+        repository = section_data["repository"]
+    elif "repo" in section_data:
+        repository = section_data["repo"]
+    else:
+        # Can't migrate without repository information
+        return migrated
+    
     # Check if commit field contains a branch name instead of a commit hash
-    if "commit" in config[section] and "branch" not in config[section]:
-        commit_value = config[section]["commit"]
-        repository = get_repository_from_config(config, section)
+    if "commit" in section_data and "branch" not in section_data:
+        commit_value = section_data["commit"]
         is_likely_hash = (len(commit_value) == 40 and 
                          all(c in '0123456789abcdef' for c in commit_value.lower()))
-        if not is_likely_hash or commit_value == "HEAD":
+        
+        # Don't migrate "HEAD" - it's a valid commit reference, not a branch name
+        if not is_likely_hash and commit_value != "HEAD":
             try:
                 actual_commit = resolve_commit_ref(repository, commit_value)
                 if actual_commit != commit_value:
-                    config[section]["branch"] = commit_value
-                    config[section]["commit"] = actual_commit
+                    section_data["branch"] = commit_value
+                    section_data["commit"] = actual_commit
                     migrated = True
                     print(f"Migrated '{commit_value}' from commit to branch tracking with hash '{actual_commit[:7]}' for {section}")
             except subprocess.CalledProcessError as e:
                 print(f"warning: could not resolve commit reference '{commit_value}' for {section}: {e}")
+        elif commit_value == "HEAD":
+            # For "HEAD", migrate to track the repository's default branch
+            try:
+                default_branch = get_default_branch(repository)
+                actual_commit = resolve_commit_ref(repository, default_branch)
+                section_data["branch"] = default_branch
+                section_data["commit"] = actual_commit
+                migrated = True
+                print(f"Migrated '{commit_value}' to track default branch '{default_branch}' with hash '{actual_commit[:7]}' for {section}")
+            except subprocess.CalledProcessError as e:
+                print(f"warning: could not resolve default branch for '{commit_value}' for {section}: {e}")
+    
+    # Migrate section name if needed
+    if needs_section_migration:
+        path = extract_path_from_section(section)
+        new_section = f'file "{path}" from "{repository}"'
+        
+        # Remove old section and add new one
+        config.remove_section(section)
+        config.add_section(new_section)
+        
+        # Copy all data to new section, except repository key (now in section name)
+        for key, value in section_data.items():
+            if key != "repository":  # Don't duplicate repository in new format
+                config[new_section][key] = value
+        
+        migrated = True
+        print(f"Migrated section name from '{section}' to '{new_section}'")
+    else:
+        # Update existing section with migrated data
+        for key, value in section_data.items():
+            config[section][key] = value
     
     return migrated
 
