@@ -36,8 +36,11 @@ class TestGitRepository(unittest.TestCase):
 
 class TestAdd(TestGitRepository):
     def test_add(self):
-        """Test `git fetch-file add repository path`."""
-        pass
+        """Test `git fetch-file add <repository> <path>`."""
+        subprocess.run(["git", "fetch-file", "add", "https://github.com/octocat/Hello-World.git", "README"], check=True)
+        with open(".git-remote-files", "r") as f:
+            entries = f.read()
+        self.assertIn("[file \"README\" from \"https://github.com/octocat/Hello-World.git\"]", entries, "section not found in .git-remote-files")
 
 
 if __name__ == "__main__":
