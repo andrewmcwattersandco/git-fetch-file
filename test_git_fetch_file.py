@@ -45,5 +45,13 @@ class TestAdd(TestGitRepository):
         self.assertIn(section, config.sections(), "section not found in .git-remote-files")
 
 
+class TestPull(TestGitRepository):
+    def test_pull(self):
+        """Test `git fetch-file pull`."""
+        subprocess.run(["git", "fetch-file", "add", "https://github.com/octocat/Hello-World.git", "README"], check=True)
+        subprocess.run(["git", "fetch-file", "pull"], check=True)
+        self.assertTrue(os.path.exists("README"), "README not found after pull")
+
+
 if __name__ == "__main__":
     unittest.main()

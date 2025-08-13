@@ -594,6 +594,10 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
         repository, commit = repository_key
         results = []
 
+        # Ensure TEMP_DIR exists before using it
+        temp_dir = Path(TEMP_DIR)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
         with tempfile.TemporaryDirectory(dir=TEMP_DIR) as temp_clone_dir:
             clone_dir = Path(temp_clone_dir)
             try:
