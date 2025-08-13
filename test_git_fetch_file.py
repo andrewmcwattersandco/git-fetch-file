@@ -1,5 +1,8 @@
 import unittest
 import subprocess
+import tempfile
+import os
+import shutil
 
 
 class TestArgumentParser(unittest.TestCase):
@@ -15,6 +18,27 @@ class TestArgumentParser(unittest.TestCase):
         with open(script_path, "r") as f:
             source = f.read()
         self.assertIn("argparse.ArgumentParser", source, "failed to find argparse.ArgumentParser")
+
+
+class TestGitRepository(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.oldpwd = os.getcwd()
+        os.chdir(self.tmpdir)
+        subprocess.run(["git", "init"], check=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+        os.chdir(self.oldpwd)
+
+
+class TestAdd(TestGitRepository):
+    def test_add(self):
+        """Test `git add`."""
+        pass
+
 
 if __name__ == "__main__":
     unittest.main()
