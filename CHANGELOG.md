@@ -8,16 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.4.2] - 2025-08-14
 
 ### Fixed
-- Fixed `pull` command not updating branch-tracked files to their latest commits
-- Fixed incorrect "local changes detected" warnings when pulling branch updates
-- Branch-tracked files now automatically resolve to the latest commit on their branch during pulls
-- Fixed grouping logic to use resolved commits instead of stored commits for branch-tracked files
-- Improved local change detection to distinguish between actual user modifications and expected branch updates
+- Fixed `pull` command not updating remote-tracking files to their latest commits
+- Fixed incorrect "local changes detected" warnings when pulling remote updates
+- Remote-tracking files now automatically resolve to the latest commit on their branch during pulls
+- Fixed grouping logic to use resolved commits instead of stored commits for remote-tracking files
+- Improved local change detection to distinguish between actual user modifications and expected remote updates
 
 ### Changed
 - **BREAKING**: Removed `--save` flag from `pull` command
-- Branch tracking is now automatic: files with a `branch` key automatically update to latest commit, files without `branch` key remain pinned to their stored commit
-- Improved user experience by making branch vs. pinned behavior more intuitive
+- Remote tracking is now automatic: files with a `branch` key automatically update to latest commit, files without `branch` key remain pinned to their stored commit
+- Improved user experience by making remote vs. pinned behavior more intuitive
+- Added deprecated `--save` flag for backwards compatibility (shows warning and is ignored)
+
+### Backwards Compatibility
+- Scripts using `git fetch-file pull --save` will continue to work but display a deprecation warning
+- The `--save` flag is now a no-op as the behavior it provided is now automatic for remote-tracking files
 
 ## [1.4.1] - 2025-08-13
 

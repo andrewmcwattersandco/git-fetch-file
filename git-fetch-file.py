@@ -259,7 +259,7 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
     # Normalize path by removing leading slash
     path = path.lstrip('/')
     
-    # Determine the commit reference and branch tracking behavior
+    # Determine the commit reference and remote-tracking behavior
     # Priority: explicit commit > explicit branch > default branch of repository
     if commit:
         commit_ref = commit
@@ -380,7 +380,7 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
     if not (len(actual_commit) == 40 and all(c in '0123456789abcdef' for c in actual_commit.lower())):
         print(f"warning: commit value '{actual_commit}' does not look like a valid hash")
     
-    # Set branch tracking information
+    # Set remote-tracking information
     if is_tracking_branch:
         config[section]["branch"] = branch
     elif "branch" in config[section]:
@@ -483,12 +483,12 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
         edit (bool): Whether to open editor for commit message.
         no_commit (bool): If True, don't auto-commit changes.
         auto_commit (bool): If True, auto-commit with default message.
-        save (bool): Deprecated parameter, ignored (branch tracking now updates automatically).
+        save (bool): Deprecated parameter, ignored (remote-tracking files now update automatically).
     """
     # Show deprecation warning for --save flag
     if save:
-        print("warning: --save is deprecated. Branch tracking now updates automatically.", file=sys.stderr)
-    
+        print("warning: --save is deprecated. Remote-tracking files now update automatically.", file=sys.stderr)
+
     config = load_remote_files()
     
     if not config.sections():
@@ -538,10 +538,10 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
             'is_glob': is_glob
         })
     
-    # Resolve branch commits to latest if branch tracking is enabled
+    # Resolve branch commits to latest if remote-tracking files are enabled
     for entry in file_entries:
         if entry['branch']:
-            # For branch-tracked files, always resolve to latest commit on branch
+            # For remote-tracking files, always resolve to latest commit on branch
             try:
                 latest_commit = resolve_commit_ref(entry['repository'], entry['branch'])
                 entry['target_commit'] = latest_commit
@@ -751,7 +751,7 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
                 if not result['success']:
                     print(f"error: fetching {result['path']}: {result['error']}")
     
-    # Update config with new commits for branch-tracked files
+    # Update config with new commits for remote-tracking files
     config_needs_save = config_migrated  # Save if we migrated any sections
     updated = False
     for result in all_results:
@@ -929,13 +929,13 @@ def status_files():
         
         # Determine tracking status and display format like git status
         if branch:
-            # This is a branch-tracking entry - like "On branch main"
+            # This is a remote-tracking entry - like "On branch main"
             status_display = f"On branch {branch}"
             # Always show the current commit hash since commit is always a hash now
             short_commit = get_short_commit(commit)
             status_display += f" at {short_commit}"
         else:
-            # This is a non-branch-tracked entry
+            # This is a detached HEAD entry
             # Commit should always be a hash now, never "HEAD"
             short_commit = get_short_commit(commit)
             status_display = f"HEAD detached at {short_commit}"
@@ -1313,7 +1313,7 @@ def migrate_config_section(config, section):
                     section_data["branch"] = commit_value
                     section_data["commit"] = actual_commit
                     migrated = True
-                    print(f"Migrated '{commit_value}' from commit to branch tracking with hash '{actual_commit[:7]}' for {section}")
+                    print(f"Migrated '{commit_value}' from commit to tracking branch with hash '{actual_commit[:7]}' for {section}")
             except subprocess.CalledProcessError as e:
                 print(f"warning: could not resolve commit reference '{commit_value}' for {section}: {e}")
         elif commit_value == "HEAD":
@@ -1445,7 +1445,7 @@ def create_parser():
     pull_parser.add_argument('-m', '--message', dest='commit_message',
                             help='Commit with message')
     pull_parser.add_argument('--save', action='store_true',
-                            help='(Deprecated) Branch tracking now updates automatically')
+                            help='(Deprecated) Remote-tracking files now update automatically')
     
     # Status/list subcommands
     subparsers.add_parser('status', help='List all tracked files')

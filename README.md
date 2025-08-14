@@ -14,7 +14,7 @@ It’s like a mini submodule, but for just the files you want.
 
 - Pull a single file or glob from a remote Git repo
 - Track origin, commit, and comments in .git-remote-files
-- **Automatic branch tracking** - branch-tracked files update to latest commit automatically
+- **Automatic remote tracking** - remote-tracking files update to latest commit automatically
 - Optionally overwrite local changes with `--force`
 - **Dry-run mode** to preview changes without executing them
 - **Concurrent fetching** with configurable parallelism (`--jobs`)
@@ -118,7 +118,7 @@ git fetch-file pull [<options>]
 
 Fetches all files tracked in `.git-remote-files` from their source repositories. Files are downloaded to their configured target locations and local changes are detected automatically.
 
-For branch-tracked files, git-fetch-file automatically updates to the latest commit on the tracked branch and updates the manifest with the new commit hash. For commit/tag-tracked files, the exact pinned commit is fetched.
+For remote-tracking files, git-fetch-file automatically updates to the latest commit on the tracked branch and updates the manifest with the new commit hash. For commit/tag-tracked files, the exact pinned commit is fetched.
 
 By default, changes are not automatically committed (following git's convention). Use `--commit` for auto-commit with a git-style default message, `-m`, `--edit`, or other commit flags to enable auto-commit after pulling files.
 
@@ -146,7 +146,7 @@ By default, changes are not automatically committed (following git's convention)
 : Don't auto-commit changes, even if other commit flags are specified.
 
 `--save`
-: (Deprecated) This flag is ignored for backwards compatibility. Branch tracking now updates automatically.
+: (Deprecated) This flag is ignored for backwards compatibility. Remote-tracking files now update automatically.
 
 ### git fetch-file status
 
@@ -208,7 +208,7 @@ This allows tracking the same filename from different repositories or to differe
 
 git-fetch-file supports two distinct tracking modes that behave differently:
 
-### Branch Tracking (`-b/--branch`)
+### Remote-tracking files (`-b/--branch`)
 When you track a branch with `-b` or `--branch`, git-fetch-file follows the branch tip:
 - Always fetches the latest commit from that branch automatically
 - The manifest is automatically updated with new commit hashes when pulling
@@ -456,7 +456,7 @@ git fetch-file add https://github.com/user/templates.git "**" vendor/templates -
 git fetch-file add https://github.com/user/assets.git "**/*.{js,css,png}" --glob --commit v1.0.0 --comment "Static assets"
 
 # Pull everything
-git fetch-file pull  # Updates branch-tracked repos to latest automatically
+git fetch-file pull  # Updates remote-tracking files to latest automatically
 ```
 
 **Pro tip for entire repositories:** You may want to add tracked directories to `.gitignore` so they're not committed to your main repo, then pull them locally or in CI:
@@ -476,7 +476,7 @@ cd your-repo
 git fetch-file pull  # Downloads all tracked files locally
 ```
 
-#### Branch vs Commit Tracking
+#### Remote-tracking files vs detached HEAD files
 ```sh
 # Track a branch - gets updates when the branch moves
 git fetch-file add https://github.com/user/lib.git utils.js -b develop --comment "Latest development utils"
@@ -487,7 +487,7 @@ git fetch-file add https://github.com/user/lib.git config.js --commit a1b2c3d --
 # Track a tag - stays pinned to that release
 git fetch-file add https://github.com/user/lib.git version.js --commit v2.1.0 --comment "Release version helper"
 
-# Pull and update branch-tracked files to latest commits automatically
+# Pull and update remote-tracking files to latest commits automatically
 git fetch-file pull
 # utils.js gets updated if develop branch moved forward
 # config.js and version.js stay at their pinned commits
