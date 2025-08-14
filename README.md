@@ -4,8 +4,6 @@ Fetch and sync individual files or globs from other Git repositories, with commi
 ```sh
 git fetch-file add https://github.com/user/awesome-lib.git utils/helper.js
 git fetch-file pull --commit
-
-# That's it! The file is now in your repo and tracked in .git-remote-files
 ```
 
 **git-fetch-file(1)** is a utility for importing specific files from other Git repositories into your own project while keeping a manifest (.git-remote-files) that remembers where they came from and what commit they belong to.
