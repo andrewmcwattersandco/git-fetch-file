@@ -2,12 +2,7 @@
 Fetch and sync individual files or globs from other Git repositories, with commit tracking and local-change protection
 
 ```sh
-# Track a file from another repo
-# -b, --branch, is optional, defaults to default branch (usually main or master)
-git fetch-file add https://github.com/user/awesome-lib.git utils/helper.js -b main
-
-# Pull it into your project
-# --commit is optional, defaults to no commit
+git fetch-file add https://github.com/user/awesome-lib.git utils/helper.js
 git fetch-file pull --commit
 
 # That's it! The file is now in your repo and tracked in .git-remote-files
@@ -21,8 +16,8 @@ It’s like a mini submodule, but for just the files you want.
 
 - Pull a single file or glob from a remote Git repo
 - Track origin, commit, and comments in .git-remote-files
+- **Automatic branch tracking** - branch-tracked files update to latest commit automatically
 - Optionally overwrite local changes with `--force`
-- Update tracked commits with `--save`
 - **Dry-run mode** to preview changes without executing them
 - **Concurrent fetching** with configurable parallelism (`--jobs`)
 - **Git-style output** with clean, organized status reporting
@@ -75,7 +70,7 @@ If the same file path is already being tracked from the same repository to the s
 : Alias for `--detach` (maintained for backward compatibility).
 
 `-b <branch>`, `--branch <branch>`
-: Track a specific branch. This will always fetch the latest commit from that branch tip when pulling (especially useful with `--save` to update the manifest).
+: Track a specific branch. This will always fetch the latest commit from that branch tip when pulling, automatically updating the manifest with new commit hashes.
 
 `--glob`
 : Treat `<path>` as a glob pattern. Overrides auto-detection.
@@ -125,15 +120,14 @@ git fetch-file pull [<options>]
 
 Fetches all files tracked in `.git-remote-files` from their source repositories. Files are downloaded to their configured target locations and local changes are detected automatically.
 
+For branch-tracked files, git-fetch-file automatically updates to the latest commit on the tracked branch and updates the manifest with the new commit hash. For commit/tag-tracked files, the exact pinned commit is fetched.
+
 By default, changes are not automatically committed (following git's convention). Use `--commit` for auto-commit with a git-style default message, `-m`, `--edit`, or other commit flags to enable auto-commit after pulling files.
 
 **OPTIONS**
 
 `--force`
 : Overwrite files with local changes. Without this flag, files with local modifications are skipped.
-
-`--save`
-: Update commit hashes in `.git-remote-files` for branch references that have moved. This is particularly useful when tracking branches (added with `-b/--branch`) to get the latest commits. Files tracking specific commit hashes or tags remain unchanged.
 
 `--dry-run`
 : Show what would be fetched without actually downloading files.
@@ -152,6 +146,9 @@ By default, changes are not automatically committed (following git's convention)
 
 `--no-commit`
 : Don't auto-commit changes, even if other commit flags are specified.
+
+`--save`
+: (Deprecated) This flag is ignored for backwards compatibility. Branch tracking now updates automatically.
 
 ### git fetch-file status
 
@@ -215,28 +212,28 @@ git-fetch-file supports two distinct tracking modes that behave differently:
 
 ### Branch Tracking (`-b/--branch`)
 When you track a branch with `-b` or `--branch`, git-fetch-file follows the branch tip:
-- Always fetches the latest commit from that branch
-- Use `pull --save` to update the manifest with new commit hashes
+- Always fetches the latest commit from that branch automatically
+- The manifest is automatically updated with new commit hashes when pulling
 - Similar to how git submodules work when following a branch
 - Perfect for staying current with active development
 
 Example:
 ```sh
 git fetch-file add repo.git src/utils.js -b main
-git fetch-file pull --save  # Gets latest main and updates manifest
+git fetch-file pull  # Gets latest main and updates manifest automatically
 ```
 
 ### Commit/Tag Tracking (`--commit`)
 When you track a specific commit hash or tag with `--commit`, git-fetch-file pins to that exact point:
 - Always fetches the same commit, even if the branch has moved
-- `pull --save` has no effect (nothing to update)
+- The manifest never changes (nothing to update)
 - Similar to git's "detached HEAD" state
 - Perfect for reproducible builds and stable dependencies
 
 Example:
 ```sh
 git fetch-file add repo.git src/utils.js --detach v1.2.3
-git fetch-file pull --save  # No change, still at v1.2.3
+git fetch-file pull  # No change, still at v1.2.3
 ```
 
 ## Performance & Workflow
@@ -321,7 +318,7 @@ git fetch-file status
 
 #### Track a remote file
 ```sh
-# Track the latest commit from the main branch (updates when you pull with --save)
+# Track the latest commit from the main branch (updates automatically when you pull)
 git fetch-file add https://github.com/user/project.git utils/logger.py -b main --comment "Logging helper"
 
 # Track a specific commit (stays pinned to that exact commit)
@@ -461,7 +458,7 @@ git fetch-file add https://github.com/user/templates.git "**" vendor/templates -
 git fetch-file add https://github.com/user/assets.git "**/*.{js,css,png}" --glob --commit v1.0.0 --comment "Static assets"
 
 # Pull everything
-git fetch-file pull --save  # Updates branch-tracked repos to latest
+git fetch-file pull  # Updates branch-tracked repos to latest automatically
 ```
 
 **Pro tip for entire repositories:** You may want to add tracked directories to `.gitignore` so they're not committed to your main repo, then pull them locally or in CI:
@@ -492,8 +489,8 @@ git fetch-file add https://github.com/user/lib.git config.js --commit a1b2c3d --
 # Track a tag - stays pinned to that release
 git fetch-file add https://github.com/user/lib.git version.js --commit v2.1.0 --comment "Release version helper"
 
-# Pull and update branch-tracked files to latest commits
-git fetch-file pull --save
+# Pull and update branch-tracked files to latest commits automatically
+git fetch-file pull
 # utils.js gets updated if develop branch moved forward
 # config.js and version.js stay at their pinned commits
 ```

@@ -471,7 +471,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
 
 
 
-def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=False, no_commit=False, auto_commit=False):
+def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=False, no_commit=False, auto_commit=False, save=False):
     """
     Pull all tracked files from .git-remote-files.
 
@@ -483,7 +483,12 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
         edit (bool): Whether to open editor for commit message.
         no_commit (bool): If True, don't auto-commit changes.
         auto_commit (bool): If True, auto-commit with default message.
+        save (bool): Deprecated parameter, ignored (branch tracking now updates automatically).
     """
+    # Show deprecation warning for --save flag
+    if save:
+        print("warning: --save is deprecated. Branch tracking now updates automatically.", file=sys.stderr)
+    
     config = load_remote_files()
     
     if not config.sections():
@@ -1439,6 +1444,8 @@ def create_parser():
                             help="Don't auto-commit changes")
     pull_parser.add_argument('-m', '--message', dest='commit_message',
                             help='Commit with message')
+    pull_parser.add_argument('--save', action='store_true',
+                            help='(Deprecated) Branch tracking now updates automatically')
     
     # Status/list subcommands
     subparsers.add_parser('status', help='List all tracked files')
@@ -1497,7 +1504,8 @@ def main():
             commit_message=args.commit_message,
             edit=args.edit,
             no_commit=args.no_commit,
-            auto_commit=args.commit
+            auto_commit=args.commit,
+            save=args.save
         )
     
     elif args.command in ('status', 'list'):
