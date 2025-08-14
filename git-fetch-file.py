@@ -105,7 +105,7 @@ def get_files_from_glob(clone_dir, path, repository):
     return files
 
 
-def process_file_copy(source_file, target_path, cache_file, force, file_path, commit):
+def process_file_copy(source_file, target_path, cache_file, force, file_path, commit, is_branch_update=False):
     """Handle the actual file copying, caching, and conflict detection."""
     local_hash = hash_file(target_path)
     last_hash = None
@@ -113,19 +113,24 @@ def process_file_copy(source_file, target_path, cache_file, force, file_path, co
         with open(cache_file) as cf:
             last_hash = cf.read().strip()
     
-    if local_hash and local_hash != last_hash and not force:
-        print(f"Skipping {file_path.lstrip('/')}: local changes detected. Use --force to overwrite.")
-        return False
+    # Check if local file has changes compared to what git-fetch-file last fetched
+    has_local_changes = local_hash and local_hash != last_hash
     
     if source_file.exists():
         source_hash = hash_file(source_file)
-        # Check if file is already up to date
+        # Check if file is already up to date with what we're trying to fetch
         if local_hash == source_hash:
             # File is already up to date, but update cache to track it
             cache_file.parent.mkdir(parents=True, exist_ok=True)
             with open(cache_file, "w") as cf:
                 cf.write(source_hash)
             return "up_to_date"
+        
+        # If we have local changes and not forcing, skip unless it's a branch update
+        # Branch updates are expected and shouldn't be considered "local changes"
+        if has_local_changes and not force and not is_branch_update:
+            print(f"Skipping {file_path.lstrip('/')}: local changes detected. Use --force to overwrite.")
+            return False
         
         target_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_file, target_path)
@@ -457,7 +462,8 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
                 cache_file = Path(CACHE_DIR) / cache_key
                 source_file = clone_dir / f
                 # Use helper function to handle file copying and caching
-                process_file_copy(source_file, target_path, cache_file, force, f, commit)
+                # fetch_file is usually called directly, not for branch updates
+                process_file_copy(source_file, target_path, cache_file, force, f, commit, is_branch_update=False)
         except subprocess.CalledProcessError as e:
             print(f"fatal: failed to clone repository: {e}")
             raise RuntimeError(f"failed to clone repository: {e}")
@@ -465,13 +471,12 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
 
 
 
-def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message=None, edit=False, no_commit=False, auto_commit=False):
+def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=False, no_commit=False, auto_commit=False):
     """
     Pull all tracked files from .git-remote-files.
 
     Args:
         force (bool): Overwrite local changes if True.
-        save (bool): Update .git-remote-files commit entries for branch-based files.
         dry_run (bool): If True, only show what would be done without executing.
         jobs (int): Number of concurrent jobs for fetching files.
         commit_message (str, optional): Custom commit message for auto-commit.
@@ -528,10 +533,27 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
             'is_glob': is_glob
         })
     
-    # Group files by repository and commit to avoid concurrent cloning of the same repo
+    # Resolve branch commits to latest if branch tracking is enabled
+    for entry in file_entries:
+        if entry['branch']:
+            # For branch-tracked files, always resolve to latest commit on branch
+            try:
+                latest_commit = resolve_commit_ref(entry['repository'], entry['branch'])
+                entry['target_commit'] = latest_commit
+                entry['commit_updated'] = latest_commit != entry['commit']
+            except subprocess.CalledProcessError:
+                print(f"warning: failed to resolve branch '{entry['branch']}' for {entry['path']}")
+                entry['target_commit'] = entry['commit']
+                entry['commit_updated'] = False
+        else:
+            # Use stored commit for non-branch files (detached HEAD)
+            entry['target_commit'] = entry['commit']
+            entry['commit_updated'] = False
+    
+    # Group files by repository and target commit to avoid concurrent cloning of the same repo
     repository_groups = {}
     for entry in file_entries:
-        repository_key = (entry['repository'], entry['commit'])
+        repository_key = (entry['repository'], entry['target_commit'])
         if repository_key not in repository_groups:
             repository_groups[repository_key] = []
         repository_groups[repository_key].append(entry)
@@ -552,16 +574,24 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                 if cache_file.exists():
                     with open(cache_file) as cf:
                         last_hash = cf.read().strip()
-                if local_hash and local_hash != last_hash and not force:
+                
+                # Check if local file matches what was last fetched from git-fetch-file
+                has_local_changes = local_hash and local_hash != last_hash
+                
+                if has_local_changes and not force:
                     would_skip.append(f"{entry['path']} from {entry['repository']}")
-                elif local_hash == last_hash and not entry.get('branch'):
-                    short_commit = get_short_commit(entry['commit'])
-                    status_display = f"HEAD detached at {short_commit}"
+                elif not has_local_changes and not entry.get('commit_updated'):
+                    # File is up to date and no new commit to fetch
+                    if entry.get('branch'):
+                        status_display = f"On branch {entry['branch']} at {get_short_commit(entry['target_commit'])}"
+                    else:
+                        status_display = f"HEAD detached at {get_short_commit(entry['commit'])}"
                     up_to_date.append(f"{entry['path']} from {entry['repository']} ({status_display})")
                 else:
+                    # File needs to be fetched (local changes with force, or new commit available)
                     if entry.get('branch'):
                         status_info = f"On branch {entry['branch']}"
-                        if save:
+                        if entry.get('commit_updated'):
                             status_info += " -> [update to latest]"
                     else:
                         short_commit = get_short_commit(entry['commit'])
@@ -634,7 +664,9 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                             cache_file = Path(CACHE_DIR) / cache_key
                             source_file = clone_dir / f
                             # Use helper function to handle file copying and caching
-                            result = process_file_copy(source_file, target_path, cache_file, force, f, commit)
+                            # Branch updates are expected changes, not "local changes"
+                            is_branch_update = entry.get('commit_updated', False)
+                            result = process_file_copy(source_file, target_path, cache_file, force, f, commit, is_branch_update)
                             files_processed += 1
                             if result is True:
                                 files_updated += 1
@@ -714,18 +746,17 @@ def pull_files(force=False, save=False, dry_run=False, jobs=None, commit_message
                 if not result['success']:
                     print(f"error: fetching {result['path']}: {result['error']}")
     
-    # Update config with new commits if save is enabled
+    # Update config with new commits for branch-tracked files
     config_needs_save = config_migrated  # Save if we migrated any sections
-    if save:
-        updated = False
-        for result in all_results:
-            if result['success'] and result['commit'] != "HEAD":
-                if not result['commit'].startswith(result['fetched_commit'][:7]):
-                    config[result['section']]["commit"] = result['fetched_commit']
-                    updated = True
-        
-        if updated:
-            config_needs_save = True
+    updated = False
+    for result in all_results:
+        if result['success'] and result['commit'] != "HEAD":
+            if not result['commit'].startswith(result['fetched_commit'][:7]):
+                config[result['section']]["commit"] = result['fetched_commit']
+                updated = True
+    
+    if updated:
+        config_needs_save = True
     
     # Save config if needed (migration or updates)
     if config_needs_save:
@@ -1406,8 +1437,6 @@ def create_parser():
                             help='Number of parallel jobs (default: auto)')
     pull_parser.add_argument('--no-commit', action='store_true',
                             help="Don't auto-commit changes")
-    pull_parser.add_argument('--save', action='store_true',
-                            help='Update commit hashes for branches')
     pull_parser.add_argument('-m', '--message', dest='commit_message',
                             help='Commit with message')
     
@@ -1463,7 +1492,6 @@ def main():
     elif args.command == 'pull':
         pull_files(
             force=args.force,
-            save=args.save,
             dry_run=args.dry_run,
             jobs=args.jobs,
             commit_message=args.commit_message,

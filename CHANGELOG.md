@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2025-08-14
+
+### Fixed
+- Fixed `pull` command not updating branch-tracked files to their latest commits
+- Fixed incorrect "local changes detected" warnings when pulling branch updates
+- Branch-tracked files now automatically resolve to the latest commit on their branch during pulls
+- Fixed grouping logic to use resolved commits instead of stored commits for branch-tracked files
+- Improved local change detection to distinguish between actual user modifications and expected branch updates
+
+### Changed
+- **BREAKING**: Removed `--save` flag from `pull` command
+- Branch tracking is now automatic: files with a `branch` key automatically update to latest commit, files without `branch` key remain pinned to their stored commit
+- Improved user experience by making branch vs. pinned behavior more intuitive
+
 ## [1.4.1] - 2025-08-13
 
 ### Fixed
@@ -94,6 +108,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.0] - Previous Release
 - Initial tracked version with core functionality
 
+[1.4.2]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.4.1...v1.4.2
+[1.4.1]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.3.0...v1.4.0
 [1.3.1]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.2.2...v1.3.0
