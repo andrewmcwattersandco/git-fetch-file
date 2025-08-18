@@ -504,6 +504,7 @@ python3 -m unittest
 Thanks to the following people who have contributed to this project:
 
 - [@khusmann](https://github.com/khusmann) - Reported concurrency bug with multiple files from same repository ([#2](https://github.com/andrewmcwattersandco/git-fetch-file/issues/2)) and issue with adding same filename from different repositories ([#5](https://github.com/andrewmcwattersandco/git-fetch-file/issues/5))
+- [@wadabum](https://github.com/wadabum) - Added Windows support to unit tests
 
 ## License
 GNU General Public License v2.0
