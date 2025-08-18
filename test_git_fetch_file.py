@@ -1,3 +1,4 @@
+import re
 import unittest
 import subprocess
 import tempfile
@@ -14,8 +15,11 @@ class TestArgumentParser(unittest.TestCase):
         script_path = subprocess.check_output(
             ["git", "config", "alias.fetch-file"], text=True
         ).strip()
-        if script_path.startswith("!python3 "):
-            script_path = script_path[len("!python3 "):]
+        # remove any leading "!something " prefix
+        script_path = re.sub(r"^!\S+\s+", "", script_path)
+        # when this is actually git-bash.exe, the path may need to be translated
+        if os.name == 'nt' and script_path.startswith('/'):
+            script_path = script_path[1] + ':' + script_path[2:]
         with open(script_path, "r") as f:
             source = f.read()
         self.assertIn("argparse.ArgumentParser", source, "failed to find argparse.ArgumentParser")
@@ -31,8 +35,8 @@ class TestGitRepository(unittest.TestCase):
         subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
 
     def tearDown(self):
-        shutil.rmtree(self.tmpdir)
         os.chdir(self.oldpwd)
+        shutil.rmtree(self.tmpdir)
 
 
 class TestAdd(TestGitRepository):
