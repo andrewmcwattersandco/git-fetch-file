@@ -35,8 +35,8 @@ class TestGitRepository(unittest.TestCase):
         subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
 
     def tearDown(self):
-        shutil.rmtree(self.tmpdir)
         os.chdir(self.oldpwd)
+        shutil.rmtree(self.tmpdir)
 
 
 class TestAdd(TestGitRepository):
