@@ -1,3 +1,4 @@
+import re
 import unittest
 import subprocess
 import tempfile
@@ -14,8 +15,8 @@ class TestArgumentParser(unittest.TestCase):
         script_path = subprocess.check_output(
             ["git", "config", "alias.fetch-file"], text=True
         ).strip()
-        if script_path.startswith("!python3 "):
-            script_path = script_path[len("!python3 "):]
+        # remove any leading "!something " prefix
+        script_path = re.sub(r"^!\S+\s+", "", script_path)
         with open(script_path, "r") as f:
             source = f.read()
         self.assertIn("argparse.ArgumentParser", source, "failed to find argparse.ArgumentParser")
