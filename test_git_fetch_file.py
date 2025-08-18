@@ -17,6 +17,9 @@ class TestArgumentParser(unittest.TestCase):
         ).strip()
         # remove any leading "!something " prefix
         script_path = re.sub(r"^!\S+\s+", "", script_path)
+        # when this is actually git-bash.exe, the path may need to be translated
+        if os.name == 'nt' and script_path.startswith('/'):
+            script_path = script_path[1] + ':' + script_path[2:]
         with open(script_path, "r") as f:
             source = f.read()
         self.assertIn("argparse.ArgumentParser", source, "failed to find argparse.ArgumentParser")
