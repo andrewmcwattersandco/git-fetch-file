@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2025-08-20
+
+### Fixed
+- **Target path calculation with git aliases**: Fixed critical bug where target paths were incorrectly calculated when using `git fetch-file` commands from subdirectories within a repository. Git aliases that start with `!` execute from the repository root, causing the tool to incorrectly detect the working directory as the repository root instead of the directory where the user invoked the command.
+- **GIT_PREFIX environment variable support**: Now properly uses Git's `GIT_PREFIX` environment variable to determine the correct relative path from repository root to where the command was invoked, ensuring target paths are calculated correctly regardless of where the git alias runs.
+- **Manifest target storage accuracy**: Target paths in the `.git-remote-files` manifest are now correctly stored relative to the git repository root, accounting for the actual directory where the command was run.
+
+### Technical Details
+- Modified `get_relative_path_from_git_root()` to use `os.environ.get('GIT_PREFIX')` instead of `Path.cwd().relative_to(git_root)`
+- Enhanced conflict detection logic to handle cases where the same file from the same repository is being tracked with different target paths
+- Improved target path calculation for both explicit target directories and default placement scenarios
+
+### Examples of Fixed Behavior
+Before (incorrect):
+```bash
+cd repo/subdir
+git fetch-file add https://github.com/user/repo.git file.txt myfile.txt
+# Would store: target = myfile.txt (incorrect, should be subdir/myfile.txt)
+```
+
+After (correct):
+```bash
+cd repo/subdir  
+git fetch-file add https://github.com/user/repo.git file.txt myfile.txt
+# Now stores: target = subdir/myfile.txt (correct)
+```
+
 ## [1.4.2] - 2025-08-14
 
 ### Fixed
@@ -113,6 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.0] - Previous Release
 - Initial tracked version with core functionality
 
+[1.4.3]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.3.0...v1.4.0
