@@ -32,20 +32,33 @@ TEMP_DIR = ".git/fetch-file-temp"
 
 
 def load_remote_files():
-    """Load the .git-remote-files manifest."""
+    """Load the .git-remote-files manifest from git repository root."""
     config = configparser.ConfigParser()
-    if os.path.exists(REMOTE_FILE_MANIFEST):
-        config.read(REMOTE_FILE_MANIFEST)
+    git_root = get_git_root()
+    if git_root:
+        manifest_path = git_root / REMOTE_FILE_MANIFEST
+    else:
+        manifest_path = Path(REMOTE_FILE_MANIFEST)
+    
+    if manifest_path.exists():
+        config.read(manifest_path)
     return config
 
 
 def save_remote_files(config):
-    """Write the .git-remote-files manifest to disk."""
+    """Write the .git-remote-files manifest to disk at git repository root."""
     from io import StringIO
     output = StringIO()
     config.write(output)
     content = output.getvalue().rstrip() + '\n'
-    with open(REMOTE_FILE_MANIFEST, "w") as f:
+    
+    git_root = get_git_root()
+    if git_root:
+        manifest_path = git_root / REMOTE_FILE_MANIFEST
+    else:
+        manifest_path = Path(REMOTE_FILE_MANIFEST)
+    
+    with open(manifest_path, "w") as f:
         f.write(content)
 
 
@@ -301,20 +314,28 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
     
     config = load_remote_files()
     
+    # Calculate the target path that would be stored in the manifest
+    current_dir_relative_to_git_root = get_relative_path_from_git_root()
+    manifest_target = get_manifest_target_path(target_dir, current_dir_relative_to_git_root)
+    
     # Create a unique section name using repository URL for uniqueness
     section = f'file "{path}" from "{repository}"'
     
     # Check for conflicts: same file path with same target location
     conflicting_section = None
+    existing_entry_for_same_file = None
     for existing_section in config.sections():
         existing_path = extract_path_from_section(existing_section)
         if existing_path == path:
             existing_repository = get_repository_from_config(config, existing_section)
             existing_target_dir = config[existing_section].get("target", None)
             
-            # Conflict if same target directory (or both have no target directory)
-            if existing_target_dir == target_dir:
-                if existing_repository == repository:
+            if existing_repository == repository:
+                # Same file from same repository
+                existing_entry_for_same_file = existing_section
+                
+                # Check if targets conflict (same target location)
+                if existing_target_dir == manifest_target:
                     # Same file, same repo, same target - allow force override
                     if not force:
                         print(f"fatal: '{path}' already tracked from {existing_repository}", file=sys.stderr)
@@ -324,10 +345,13 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
                         # Force flag used - remember this section to remove it
                         conflicting_section = existing_section
                         break
-                else:
+                # If different target, we'll update the existing entry to use the new target
+            else:
+                # Same file, different repo - check for target conflicts
+                if existing_target_dir == manifest_target:
                     # Same file, different repo, same target - this would cause filesystem conflict
                     print(f"fatal: '{path}' would conflict with existing file from {existing_repository}", file=sys.stderr)
-                    if target_dir:
+                    if manifest_target:
                         print("hint: specify a different target directory", file=sys.stderr)
                     else:
                         print("hint: specify a target directory to avoid conflict", file=sys.stderr)
@@ -336,6 +360,12 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
     # Remove conflicting section if force is used
     if conflicting_section:
         config.remove_section(conflicting_section)
+    
+    # If we found an existing entry for the same file/repo but different target,
+    # we should update that entry instead of creating a new one
+    if existing_entry_for_same_file and not conflicting_section:
+        # Update the existing entry to use the new target and commit
+        section = existing_entry_for_same_file
     
     if dry_run:
         # Resolve the commit reference to show accurate dry-run information
@@ -394,10 +424,8 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
         # Auto-detect for display purposes only
         glob = is_glob_pattern(path)
     
-    if target_dir:
-        # Normalize target directory
-        target_dir = target_dir.rstrip('/')
-        config[section]["target"] = target_dir
+    if manifest_target:
+        config[section]["target"] = manifest_target
     
     if comment:
         config[section]["comment"] = comment
@@ -436,9 +464,9 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
     Returns:
         str: The commit fetched (or would be fetched in dry-run mode).
     """
-    temp_dir = Path(TEMP_DIR)
-    temp_dir.mkdir(exist_ok=True)
-    Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
+    temp_dir = get_temp_dir()
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    get_cache_dir().mkdir(parents=True, exist_ok=True)
 
     fetched_commit = commit
 
@@ -447,7 +475,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
         return fetched_commit
 
     # Ensure TEMP_DIR exists before using it for TemporaryDirectory
-    with tempfile.TemporaryDirectory(dir=TEMP_DIR) as temp_clone_dir:
+    with tempfile.TemporaryDirectory(dir=temp_dir) as temp_clone_dir:
         clone_dir = Path(temp_clone_dir)
         try:
             # Clone the repository and get the actual commit hash
@@ -459,7 +487,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
 
             for f in files:
                 target_path, cache_key = get_target_path_and_cache_key(f, target_dir, is_glob)
-                cache_file = Path(CACHE_DIR) / cache_key
+                cache_file = get_cache_dir() / cache_key
                 source_file = clone_dir / f
                 # Use helper function to handle file copying and caching
                 # fetch_file is usually called directly, not for branch updates
@@ -573,7 +601,7 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
         for entry in file_entries:
             try:
                 target_path, cache_key = get_target_path_and_cache_key(entry['path'], entry['target_dir'], entry['is_glob'])
-                cache_file = Path(CACHE_DIR) / cache_key
+                cache_file = get_cache_dir() / cache_key
                 local_hash = hash_file(target_path)
                 last_hash = None
                 if cache_file.exists():
@@ -642,10 +670,10 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
         results = []
 
         # Ensure TEMP_DIR exists before using it
-        temp_dir = Path(TEMP_DIR)
+        temp_dir = get_temp_dir()
         temp_dir.mkdir(parents=True, exist_ok=True)
 
-        with tempfile.TemporaryDirectory(dir=TEMP_DIR) as temp_clone_dir:
+        with tempfile.TemporaryDirectory(dir=temp_dir) as temp_clone_dir:
             clone_dir = Path(temp_clone_dir)
             try:
                 fetched_commit = clone_repository_at_commit(repository, commit, clone_dir)
@@ -666,7 +694,7 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
                         
                         for f in files:
                             target_path, cache_key = get_target_path_and_cache_key(f, target_dir, is_glob)
-                            cache_file = Path(CACHE_DIR) / cache_key
+                            cache_file = get_cache_dir() / cache_key
                             source_file = clone_dir / f
                             # Use helper function to handle file copying and caching
                             # Branch updates are expected changes, not "local changes"
@@ -962,25 +990,120 @@ def is_glob_pattern(path):
 def get_target_path_and_cache_key(path, target_dir, is_glob):
     """
     Helper to determine the target path and cache key for a file or glob.
+    Target paths are relative to the current working directory where git fetch-file is run.
     Returns (target_path, cache_key)
     """
     relative_path = path.lstrip('/')
+    
     if target_dir:
+        # Target directory is specified
         if is_glob:
+            # For globs, preserve the full path structure under target directory
             target_path = Path(target_dir) / relative_path
             cache_key = f"{target_dir}_{relative_path}".replace("/", "_")
         else:
+            # For single files, handle as either directory or file target
             target_path = Path(target_dir)
             if target_path.suffix:
+                # target_dir appears to be a file path, use it directly
                 cache_key = str(target_path).replace("/", "_")
             else:
+                # target_dir is a directory, place file inside it
                 filename = Path(relative_path).name
                 target_path = target_path / filename
                 cache_key = f"{target_dir}_{filename}".replace("/", "_")
     else:
+        # No target directory - place relative to current working directory
         target_path = Path(relative_path)
         cache_key = relative_path.replace("/", "_")
+    
     return target_path, cache_key
+
+
+def get_git_root():
+    """Get the root directory of the git repository."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return Path(result.stdout.strip())
+    except subprocess.CalledProcessError:
+        return None
+
+
+def get_cache_dir():
+    """Get the cache directory path relative to git repository root."""
+    git_root = get_git_root()
+    if git_root:
+        return git_root / CACHE_DIR
+    else:
+        return Path(CACHE_DIR)
+
+
+def get_temp_dir():
+    """Get the temporary directory path relative to git repository root."""
+    git_root = get_git_root()
+    if git_root:
+        return git_root / TEMP_DIR
+    else:
+        return Path(TEMP_DIR)
+
+
+def get_manifest_target_path(target_dir, current_working_dir_relative_to_git_root):
+    """
+    Calculate the target path to store in the manifest file.
+    
+    The target path in the manifest should be relative to the git repository root,
+    but account for where the command was run from.
+    
+    Args:
+        target_dir (str): Target directory specified by user (or None)
+        current_working_dir_relative_to_git_root (Path): Current directory relative to git root
+    
+    Returns:
+        str or None: Target path to store in manifest, or None if no target specified
+    """
+    if not target_dir:
+        # If no target specified, files go to current working directory relative to git root
+        if current_working_dir_relative_to_git_root == Path('.'):
+            # Command run from git root, no target path needed
+            return None
+        else:
+            # Command run from subdirectory, target is that subdirectory
+            return str(current_working_dir_relative_to_git_root)
+    
+    # Target directory was specified
+    target_path = Path(target_dir)
+    
+    # If target is absolute, use as-is (though this is unusual)
+    if target_path.is_absolute():
+        return target_dir
+    
+    # Target is relative - combine with current working directory
+    if current_working_dir_relative_to_git_root == Path('.'):
+        # Command run from git root, target is relative to root
+        return target_dir
+    else:
+        # Command run from subdirectory, target is relative to that subdirectory
+        combined_target = current_working_dir_relative_to_git_root / target_path
+        return str(combined_target)
+
+
+def get_relative_path_from_git_root():
+    """Get the directory where git command was invoked, relative to git repository root."""
+    # Git sets GIT_PREFIX to the relative path from repo root to where command was invoked
+    git_prefix = os.environ.get('GIT_PREFIX', '')
+    
+    if git_prefix:
+        # Remove trailing slash if present
+        git_prefix = git_prefix.rstrip('/')
+        return Path(git_prefix)
+    else:
+        # No GIT_PREFIX means command was run from repository root
+        return Path('.')
 
 
 def is_git_repository():
