@@ -50,7 +50,7 @@ Track a file (or glob) from a remote Git repository.
 
 **SYNOPSIS**
 ```
-git fetch-file add <repository> <path> [<target_dir>] [<options>]
+git fetch-file add <repository> <path> [<target>] [<options>]
 ```
 
 **DESCRIPTION**
@@ -91,14 +91,14 @@ Remove a tracked file from the manifest.
 
 **SYNOPSIS**
 ```
-git fetch-file remove <path> [<target_dir>]
+git fetch-file remove <path> [<target>]
 ```
 
 **DESCRIPTION**
 
 Removes a file or glob pattern from the tracking manifest (`.git-remote-files`). The local file is not deleted - only the tracking entry is removed.
 
-If multiple entries exist for the same path (tracking to different target directories), you must specify the target directory to disambiguate which entry to remove.
+If multiple entries exist for the same path (tracking to different targets), you must specify the target to disambiguate which entry to remove.
 
 **OPTIONS**
 
