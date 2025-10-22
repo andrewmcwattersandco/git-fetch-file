@@ -145,6 +145,9 @@ By default, changes are not automatically committed (following git's convention)
 `--no-commit`
 : Don't auto-commit changes, even if other commit flags are specified.
 
+`-r <repository>`, `--repository=<repository>`
+: Only update files coming from the given repository. Short URLs may be given (i.e., those that use `insteadOf` replacements).
+
 `--save`
 : (Deprecated) This flag is ignored for backwards compatibility. Remote-tracking files now update automatically.
 

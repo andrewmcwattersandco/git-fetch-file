@@ -499,7 +499,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
 
 
 
-def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=False, no_commit=False, auto_commit=False, save=False):
+def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=False, no_commit=False, auto_commit=False, save=False, repo=None):
     """
     Pull all tracked files from .git-remote-files.
 
@@ -512,6 +512,7 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
         no_commit (bool): If True, don't auto-commit changes.
         auto_commit (bool): If True, auto-commit with default message.
         save (bool): Deprecated parameter, ignored (remote-tracking files now update automatically).
+        repo (str, optional): Only pull files from the given repository.
     """
     # Show deprecation warning for --save flag
     if save:
@@ -542,6 +543,10 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
         if migrate_config_section(config, section):
             config_migrated = True
     
+    limit_repo = None
+    if repo is not None:
+        limit_repo = expand_repo_url(repo)
+
     # Third pass: collect file entries from (potentially renamed) sections
     for section in config.sections():
         path = extract_path_from_section(section)
@@ -556,6 +561,12 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
         else:
             is_glob = is_glob_pattern(path)
         
+        # Restrict to files imported from a given repository.
+        if limit_repo is not None:
+            remote_repo = expand_repo_url(repository)
+            if limit_repo != remote_repo:
+                continue
+
         file_entries.append({
             'section': section,
             'path': path,
@@ -1032,6 +1043,20 @@ def get_git_root():
         return Path(result.stdout.strip())
     except subprocess.CalledProcessError:
         return None
+
+
+def expand_repo_url(url):
+    """Expand a repository URL with `insteadOf` replacements."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "--get-url", url],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return url
 
 
 def get_cache_dir():
@@ -1567,6 +1592,8 @@ def create_parser():
                             help="Don't auto-commit changes")
     pull_parser.add_argument('-m', '--message', dest='commit_message',
                             help='Commit with message')
+    pull_parser.add_argument('-r', '--repository',
+                            help='Limit updates to files coming from a given repository')
     pull_parser.add_argument('--save', action='store_true',
                             help='(Deprecated) Remote-tracking files now update automatically')
     
@@ -1628,7 +1655,8 @@ def main():
             edit=args.edit,
             no_commit=args.no_commit,
             auto_commit=args.commit,
-            save=args.save
+            save=args.save,
+            repo=args.repository,
         )
     
     elif args.command in ('status', 'list'):
