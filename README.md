@@ -148,6 +148,9 @@ By default, changes are not automatically committed (following git's convention)
 `-r <repository>`, `--repository=<repository>`
 : Only update files coming from the given repository. Short URLs may be given (i.e., those that use `insteadOf` replacements).
 
+`-p <path>`, `--path=<path>`
+: Only update files under the given path. May be specified multiple times in which case any given `<path>` must match.
+
 `--save`
 : (Deprecated) This flag is ignored for backwards compatibility. Remote-tracking files now update automatically.
 

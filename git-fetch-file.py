@@ -499,7 +499,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
 
 
 
-def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=False, no_commit=False, auto_commit=False, save=False, repo=None):
+def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=False, no_commit=False, auto_commit=False, save=False, repo=None, paths=None):
     """
     Pull all tracked files from .git-remote-files.
 
@@ -513,6 +513,7 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
         auto_commit (bool): If True, auto-commit with default message.
         save (bool): Deprecated parameter, ignored (remote-tracking files now update automatically).
         repo (str, optional): Only pull files from the given repository.
+        paths (list[str], optional): Only files residing under the given path in this repository.
     """
     # Show deprecation warning for --save flag
     if save:
@@ -565,6 +566,11 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
         if limit_repo is not None:
             remote_repo = expand_repo_url(repository)
             if limit_repo != remote_repo:
+                continue
+        # Restrict to files imported under a given path.
+        if paths is not None:
+            pathlike = Path(target_dir)
+            if not any(map(lambda p: pathlike.is_relative_to(p), paths)):
                 continue
 
         file_entries.append({
@@ -1594,6 +1600,8 @@ def create_parser():
                             help='Commit with message')
     pull_parser.add_argument('-r', '--repository',
                             help='Limit updates to files coming from a given repository')
+    pull_parser.add_argument('-p', '--path', action='append', dest='paths',
+                            help='Limit to files under a given path')
     pull_parser.add_argument('--save', action='store_true',
                             help='(Deprecated) Remote-tracking files now update automatically')
     
@@ -1657,6 +1665,7 @@ def main():
             auto_commit=args.commit,
             save=args.save,
             repo=args.repository,
+            paths=args.paths,
         )
     
     elif args.command in ('status', 'list'):
