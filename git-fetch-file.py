@@ -253,7 +253,7 @@ def get_default_branch(repository):
         return "master"
 
 
-def add_file(repository, path, commit=None, branch=None, glob=None, comment="", target_dir=None, dry_run=False, force=False):
+def add_file(repository, path, commit=None, branch=None, glob=None, comment="", target_dir=None, dry_run=False, force=False, force_type=None):
     """
     Add a file or glob from a remote repository to .git-remote-files.
 
@@ -268,6 +268,7 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
         target_dir (str, optional): Target directory to place the file. Defaults to same path.
         dry_run (bool): If True, only show what would be done without executing.
         force (bool): If True, overwrite existing entries for the same file path.
+        force_type (str, optional): Forced path type detection.
     """
     # Normalize path by removing leading slash
     path = path.lstrip('/')
@@ -429,6 +430,9 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
     
     if comment:
         config[section]["comment"] = comment
+
+    if force_type:
+        config[section]["force_type"] = force_type
     save_remote_files(config)
     
     pattern_type = "glob pattern" if glob else "file"
@@ -1562,6 +1566,10 @@ def create_parser():
                            help='Force treat path as glob pattern')
     add_parser.add_argument('--no-glob', action='store_true',
                            help='Force treat path as literal file')
+    add_parser.add_argument('--is-file', action='store_true',
+                           help='Force treat path as a file rather than a directory')
+    add_parser.add_argument('--is-directory', action='store_true',
+                           help='Force treat path as a directory rather than a file')
     
     # Pull subcommand
     pull_parser = subparsers.add_parser('pull', help='Pull all tracked files')
@@ -1618,6 +1626,16 @@ def main():
             glob_flag = True
         elif args.no_glob:
             glob_flag = False
+
+        # Handle force_type flag logic
+        force_type = None
+        if args.is_file and args.is_directory:
+            print("error: --is-file and --is-directory are mutually exclusive")
+            sys.exit(1)
+        elif args.is_file:
+            force_type = 'file'
+        elif args.is_directory:
+            force_type = 'directory'
         
         add_file(
             args.repository, 
@@ -1628,7 +1646,8 @@ def main():
             comment=args.comment or "", 
             target_dir=args.target_dir, 
             dry_run=args.dry_run,
-            force=args.force
+            force=args.force,
+            force_type=force_type,
         )
     
     elif args.command == 'pull':

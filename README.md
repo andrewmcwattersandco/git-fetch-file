@@ -76,6 +76,12 @@ If the same file path is already being tracked from the same repository to the s
 `--no-glob`
 : Treat `<path>` as a literal filename. Overrides auto-detection.
 
+`--is-file`
+: Treat `<path>` as a file path. Overrides auto-detection.
+
+`--is-directory`
+: Treat `<path>` as a directory path. Overrides auto-detection.
+
 `--comment <text>`
 : Add a descriptive comment to the manifest entry.
 
