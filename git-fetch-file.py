@@ -779,6 +779,7 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
             jobs = 1
     else:
         jobs = min(jobs, len(repository_groups))
+    jobs = max(jobs, 1)
     
     all_results = []
     with ThreadPoolExecutor(max_workers=jobs) as executor:
