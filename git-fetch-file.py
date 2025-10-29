@@ -253,7 +253,7 @@ def get_default_branch(repository):
         return "master"
 
 
-def add_file(repository, path, commit=None, branch=None, glob=None, comment="", target_dir=None, dry_run=False, force=False):
+def add_file(repository, path, commit=None, branch=None, glob=None, comment="", target_dir=None, dry_run=False, force=False, force_type=None):
     """
     Add a file or glob from a remote repository to .git-remote-files.
 
@@ -268,6 +268,7 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
         target_dir (str, optional): Target directory to place the file. Defaults to same path.
         dry_run (bool): If True, only show what would be done without executing.
         force (bool): If True, overwrite existing entries for the same file path.
+        force_type (str, optional): Forced path type detection.
     """
     # Normalize path by removing leading slash
     path = path.lstrip('/')
@@ -429,6 +430,9 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
     
     if comment:
         config[section]["comment"] = comment
+
+    if force_type:
+        config[section]["force_type"] = force_type
     save_remote_files(config)
     
     pattern_type = "glob pattern" if glob else "file"
@@ -448,7 +452,7 @@ def add_file(repository, path, commit=None, branch=None, glob=None, comment="", 
     print(f"Added {pattern_type} {path}{target_info} from {repository} ({status_msg})")
 
 
-def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=None, dry_run=False):
+def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=None, force_type=None, dry_run=False):
     """
     Fetch a single file or glob from a remote repository at a specific commit.
 
@@ -459,6 +463,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
         is_glob (bool): Whether path is a glob pattern.
         force (bool): Whether to overwrite local changes.
         target_dir (str, optional): Target directory to place the file.
+        force_type (str, optional): Forced path type detection.
         dry_run (bool): If True, only show what would be done without executing.
 
     Returns:
@@ -486,7 +491,7 @@ def fetch_file(repository, path, commit, is_glob=False, force=False, target_dir=
                 files = get_files_from_glob(clone_dir, path, repository)
 
             for f in files:
-                target_path, cache_key = get_target_path_and_cache_key(f, target_dir, is_glob)
+                target_path, cache_key = get_target_path_and_cache_key(f, target_dir, is_glob, force_type)
                 cache_file = get_cache_dir() / cache_key
                 source_file = clone_dir / f
                 # Use helper function to handle file copying and caching
@@ -555,6 +560,11 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
             is_glob = config[section].getboolean("glob", False)
         else:
             is_glob = is_glob_pattern(path)
+        force_type = config[section].get("force_type", None)
+        if force_type is not None:
+            if force_type not in ("file", "directory"):
+                print(f"warning: ignoring unrecognized 'force_type' of {force_type}")
+                force_type = None
         
         file_entries.append({
             'section': section,
@@ -563,7 +573,8 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
             'commit': commit,
             'branch': branch,
             'target_dir': target_dir,
-            'is_glob': is_glob
+            'is_glob': is_glob,
+            'force_type': force_type,
         })
     
     # Resolve branch commits to latest if remote-tracking files are enabled
@@ -600,7 +611,7 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
         
         for entry in file_entries:
             try:
-                target_path, cache_key = get_target_path_and_cache_key(entry['path'], entry['target_dir'], entry['is_glob'])
+                target_path, cache_key = get_target_path_and_cache_key(entry['path'], entry['target_dir'], entry['is_glob'], entry['force_type'])
                 cache_file = get_cache_dir() / cache_key
                 local_hash = hash_file(target_path)
                 last_hash = None
@@ -683,6 +694,7 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
                         path = entry['path']
                         is_glob = entry['is_glob']
                         target_dir = entry['target_dir']
+                        force_type = entry.get('force_type')
                         files = [path]
                         if is_glob:
                             files = get_files_from_glob(clone_dir, path, repository)
@@ -693,7 +705,7 @@ def pull_files(force=False, dry_run=False, jobs=None, commit_message=None, edit=
                         files_skipped = 0
                         
                         for f in files:
-                            target_path, cache_key = get_target_path_and_cache_key(f, target_dir, is_glob)
+                            target_path, cache_key = get_target_path_and_cache_key(f, target_dir, is_glob, force_type)
                             cache_file = get_cache_dir() / cache_key
                             source_file = clone_dir / f
                             # Use helper function to handle file copying and caching
@@ -987,7 +999,7 @@ def is_glob_pattern(path):
     return glob_has_magic(path)
 
 
-def get_target_path_and_cache_key(path, target_dir, is_glob):
+def get_target_path_and_cache_key(path, target_dir, is_glob, force_type=None):
     """
     Helper to determine the target path and cache key for a file or glob.
     Target paths are relative to the current working directory where git fetch-file is run.
@@ -1002,9 +1014,13 @@ def get_target_path_and_cache_key(path, target_dir, is_glob):
             target_path = Path(target_dir) / relative_path
             cache_key = f"{target_dir}_{relative_path}".replace("/", "_")
         else:
-            # For single files, handle as either directory or file target
             target_path = Path(target_dir)
-            if target_path.suffix:
+            if force_type is None:
+                is_file = bool(target_path.suffix) and not target_dir.endswith('/')
+            else:
+                is_file = force_type == 'file'
+            # For single files, handle as either directory or file target
+            if is_file:
                 # target_dir appears to be a file path, use it directly
                 cache_key = str(target_path).replace("/", "_")
             else:
@@ -1550,6 +1566,10 @@ def create_parser():
                            help='Force treat path as glob pattern')
     add_parser.add_argument('--no-glob', action='store_true',
                            help='Force treat path as literal file')
+    add_parser.add_argument('--is-file', action='store_true',
+                           help='Force treat path as a file rather than a directory')
+    add_parser.add_argument('--is-directory', action='store_true',
+                           help='Force treat path as a directory rather than a file')
     
     # Pull subcommand
     pull_parser = subparsers.add_parser('pull', help='Pull all tracked files')
@@ -1606,6 +1626,16 @@ def main():
             glob_flag = True
         elif args.no_glob:
             glob_flag = False
+
+        # Handle force_type flag logic
+        force_type = None
+        if args.is_file and args.is_directory:
+            print("error: --is-file and --is-directory are mutually exclusive")
+            sys.exit(1)
+        elif args.is_file:
+            force_type = 'file'
+        elif args.is_directory:
+            force_type = 'directory'
         
         add_file(
             args.repository, 
@@ -1616,7 +1646,8 @@ def main():
             comment=args.comment or "", 
             target_dir=args.target_dir, 
             dry_run=args.dry_run,
-            force=args.force
+            force=args.force,
+            force_type=force_type,
         )
     
     elif args.command == 'pull':
