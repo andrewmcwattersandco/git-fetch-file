@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6] - 2025-11-30
+
+### Fixed
+- **Dotfile renaming**: Fixed bug where dotfiles (like `.gitignore`, `.env`, etc.) were incorrectly treated as directories when used as target paths. Commands like `git fetch-file add <repo> Node.gitignore .gitignore` now correctly rename the file instead of placing it in a `.gitignore/` directory.
+
+### Technical Details
+- Enhanced `get_target_path_and_cache_key()` heuristic to recognize dotfiles (files starting with `.`) as files rather than directories
+- Added special case handling: files are now identified by either having a file extension OR being a dotfile
+
 ## [1.4.5] - 2025-11-30
 
 ### Contributors
