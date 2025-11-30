@@ -1021,6 +1021,13 @@ def get_target_path_and_cache_key(path, target_dir, is_glob, force_type=None):
     """
     Helper to determine the target path and cache key for a file or glob.
     Target paths are relative to the current working directory where git fetch-file is run.
+    
+    For single files:
+    - If target ends with '/', treat as directory and place file inside it
+    - If --is-directory flag was used (force_type='directory'), treat as directory
+    - If --is-file flag was used (force_type='file'), treat as file (allows renaming)
+    - Otherwise, use heuristic: if target has file extension, treat as file; else directory
+    
     Returns (target_path, cache_key)
     """
     relative_path = path.lstrip('/')
@@ -1028,24 +1035,34 @@ def get_target_path_and_cache_key(path, target_dir, is_glob, force_type=None):
     if target_dir:
         # Target directory is specified
         if is_glob:
-            # For globs, preserve the full path structure under target directory
+            # For globs, always preserve the full path structure under target directory
             target_path = Path(target_dir) / relative_path
             cache_key = f"{target_dir}_{relative_path}".replace("/", "_")
         else:
+            # Single file - determine if target is a directory or a file (allowing rename)
             target_path = Path(target_dir)
-            if force_type is None:
-                is_file = bool(target_path.suffix) and not target_dir.endswith('/')
+            
+            # Explicit directory indicator: ends with '/'
+            if target_dir.endswith('/'):
+                is_directory = True
+            # Explicit force_type flag takes precedence
+            elif force_type == 'directory':
+                is_directory = True
+            elif force_type == 'file':
+                is_directory = False
             else:
-                is_file = force_type == 'file'
-            # For single files, handle as either directory or file target
-            if is_file:
-                # target_dir appears to be a file path, use it directly
-                cache_key = str(target_path).replace("/", "_")
-            else:
-                # target_dir is a directory, place file inside it
+                # Heuristic: if target has a file extension, treat as file (rename)
+                # Otherwise, treat as directory
+                is_directory = not bool(target_path.suffix)
+            
+            if is_directory:
+                # target_dir is a directory, place file inside it with original name
                 filename = Path(relative_path).name
                 target_path = target_path / filename
                 cache_key = f"{target_dir}_{filename}".replace("/", "_")
+            else:
+                # target_dir is a file path, use it directly (allows renaming)
+                cache_key = str(target_path).replace("/", "_")
     else:
         # No target directory - place relative to current working directory
         target_path = Path(relative_path)

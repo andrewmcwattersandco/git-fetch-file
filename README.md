@@ -343,6 +343,75 @@ git fetch-file add https://github.com/user/project.git utils/version.py --commit
 git fetch-file add https://github.com/user/project.git utils/logger.py vendor -b main --comment "Third-party logging helper"
 ```
 
+### Target Parameter Behavior
+
+The `<target>` parameter controls where files are placed and supports both directory placement and file renaming.
+
+#### Single File Behavior
+
+For single files (not globs), the target parameter is interpreted based on these rules (in order of precedence):
+
+1. **Trailing slash (`/`)** - Always treated as directory
+   ```sh
+   git fetch-file add repo.git path/file.txt subdir/
+   # Result: subdir/file.txt (preserves original name)
+   ```
+
+2. **`--is-directory` flag** - Forces directory treatment
+   ```sh
+   git fetch-file add --is-directory repo.git path/file.txt output.txt
+   # Result: output.txt/file.txt (even though target has .txt extension)
+   ```
+
+3. **`--is-file` flag** - Forces file treatment (enables renaming)
+   ```sh
+   git fetch-file add --is-file repo.git path/README NEWNAME
+   # Result: NEWNAME (renames file, even without extension)
+   ```
+
+4. **File extension heuristic** - Target with extension treated as file (enables renaming)
+   ```sh
+   git fetch-file add repo.git path/README README.md
+   # Result: README.md (renames the file)
+   
+   git fetch-file add repo.git utils/config.yaml settings.json
+   # Result: settings.json (renames and changes extension)
+   ```
+
+5. **No extension heuristic** - Target without extension treated as directory (default)
+   ```sh
+   git fetch-file add repo.git path/file.txt mydir
+   # Result: mydir/file.txt (preserves original name)
+   ```
+
+#### Glob Pattern Behavior
+
+For glob patterns, the target is always treated as a directory and the full directory structure is preserved:
+
+```sh
+git fetch-file add repo.git "src/**/*.js" vendor/
+# Result: vendor/src/utils/helper.js, vendor/src/components/button.js, etc.
+# (preserves full path structure under vendor/)
+```
+
+#### Renaming Examples
+
+```sh
+# Rename a file with different extension
+git fetch-file add repo.git docs/README README.md
+
+# Rename to file without extension (use --is-file)
+git fetch-file add --is-file repo.git docs/CHANGELOG HISTORY
+
+# Place file in directory (preserves name)
+git fetch-file add repo.git src/config.js vendor/
+git fetch-file add repo.git src/config.js vendor  # Same result (no extension = directory)
+
+# Force directory even with extension in name
+git fetch-file add --is-directory repo.git src/app.js backup.old
+# Result: backup.old/app.js
+```
+
 #### Track the same file to different target directories
 ```sh
 # Track the same file to different target directories (no conflict)
