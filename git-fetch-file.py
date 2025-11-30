@@ -1026,7 +1026,8 @@ def get_target_path_and_cache_key(path, target_dir, is_glob, force_type=None):
     - If target ends with '/', treat as directory and place file inside it
     - If --is-directory flag was used (force_type='directory'), treat as directory
     - If --is-file flag was used (force_type='file'), treat as file (allows renaming)
-    - Otherwise, use heuristic: if target has file extension, treat as file; else directory
+    - Otherwise, use heuristic: if target has file extension or is a dotfile (like .gitignore),
+      treat as file; else directory
     
     Returns (target_path, cache_key)
     """
@@ -1052,8 +1053,11 @@ def get_target_path_and_cache_key(path, target_dir, is_glob, force_type=None):
                 is_directory = False
             else:
                 # Heuristic: if target has a file extension, treat as file (rename)
+                # Special case: dotfiles (like .gitignore) are treated as files
                 # Otherwise, treat as directory
-                is_directory = not bool(target_path.suffix)
+                has_extension = bool(target_path.suffix)
+                is_dotfile = target_path.name.startswith('.') and len(target_path.name) > 1
+                is_directory = not has_extension and not is_dotfile
             
             if is_directory:
                 # target_dir is a directory, place file inside it with original name
