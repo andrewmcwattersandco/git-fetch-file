@@ -1003,12 +1003,15 @@ func isGlobPattern(path string) bool {
 
 func getTargetPathAndCacheKey(path, targetDir string, isGlob bool, forceType string) (string, string) {
 	relativePath := strings.TrimPrefix(path, "/")
+	gitRoot := getGitRoot()
+
+	var targetPath string
+	var cacheKey string
 
 	if targetDir != "" {
 		if isGlob {
-			targetPath := filepath.Join(targetDir, relativePath)
-			cacheKey := strings.ReplaceAll(fmt.Sprintf("%s_%s", targetDir, relativePath), "/", "_")
-			return targetPath, cacheKey
+			targetPath = filepath.Join(targetDir, relativePath)
+			cacheKey = strings.ReplaceAll(fmt.Sprintf("%s_%s", targetDir, relativePath), "/", "_")
 		} else {
 			target := targetDir
 			isDirectory := false
@@ -1027,18 +1030,24 @@ func getTargetPathAndCacheKey(path, targetDir string, isGlob bool, forceType str
 
 			if isDirectory {
 				filename := filepath.Base(relativePath)
-				targetPath := filepath.Join(target, filename)
-				cacheKey := strings.ReplaceAll(fmt.Sprintf("%s_%s", targetDir, filename), "/", "_")
-				return targetPath, cacheKey
+				targetPath = filepath.Join(target, filename)
+				cacheKey = strings.ReplaceAll(fmt.Sprintf("%s_%s", targetDir, filename), "/", "_")
 			} else {
-				cacheKey := strings.ReplaceAll(target, "/", "_")
-				return target, cacheKey
+				targetPath = target
+				cacheKey = strings.ReplaceAll(target, "/", "_")
 			}
 		}
 	} else {
-		cacheKey := strings.ReplaceAll(relativePath, "/", "_")
-		return relativePath, cacheKey
+		targetPath = relativePath
+		cacheKey = strings.ReplaceAll(relativePath, "/", "_")
 	}
+
+	// Make targetPath absolute by resolving it relative to git root
+	if !filepath.IsAbs(targetPath) {
+		targetPath = filepath.Join(gitRoot, targetPath)
+	}
+
+	return targetPath, cacheKey
 }
 
 func getGitRoot() string {

@@ -1020,7 +1020,7 @@ def is_glob_pattern(path):
 def get_target_path_and_cache_key(path, target_dir, is_glob, force_type=None):
     """
     Helper to determine the target path and cache key for a file or glob.
-    Target paths are relative to the current working directory where git fetch-file is run.
+    Target paths are relative to the git repository root.
     
     For single files:
     - If target ends with '/', treat as directory and place file inside it
@@ -1032,6 +1032,7 @@ def get_target_path_and_cache_key(path, target_dir, is_glob, force_type=None):
     Returns (target_path, cache_key)
     """
     relative_path = path.lstrip('/')
+    git_root = get_git_root()
     
     if target_dir:
         # Target directory is specified
@@ -1068,9 +1069,13 @@ def get_target_path_and_cache_key(path, target_dir, is_glob, force_type=None):
                 # target_dir is a file path, use it directly (allows renaming)
                 cache_key = str(target_path).replace("/", "_")
     else:
-        # No target directory - place relative to current working directory
+        # No target directory - place relative to git repository root
         target_path = Path(relative_path)
         cache_key = relative_path.replace("/", "_")
+    
+    # Make target_path absolute by resolving it relative to git root
+    if git_root and not target_path.is_absolute():
+        target_path = git_root / target_path
     
     return target_path, cache_key
 
