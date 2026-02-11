@@ -24,9 +24,26 @@ It’s like a mini submodule, but for just the files you want.
 
 ## Installation
 
-### Option 1: Git Alias (Recommended)
+### Option 1: Go Binary (Fastest)
 
-Save the script anywhere and set up a Git alias:
+Download or build the Go binary for optimal performance:
+
+```sh
+# Build from source (requires Go 1.21+)
+go build -o git-fetch-file
+
+# On Windows
+go build -o git-fetch-file.exe
+
+# Set up Git alias
+git config --global alias.fetch-file '!/path/to/git-fetch-file'
+```
+
+The Go implementation is ~7x faster and has no runtime dependencies.
+
+### Option 2: Python Script (Git Alias)
+
+Save the Python script anywhere and set up a Git alias:
 
 ```sh
 git config --global alias.fetch-file '!python3 /path/to/git-fetch-file.py'
@@ -38,9 +55,11 @@ Then run it like this:
 git fetch-file <subcommand> [args...]
 ```
 
-### Option 2: PATH Installation
+### Option 3: PATH Installation
 
-Save the script as `git-fetch-file` somewhere on your PATH.
+Save either `git-fetch-file` (Go binary) or `git-fetch-file.py` (Python script) somewhere on your PATH.
+
+> **Note:** Both Python and Go implementations are fully compatible and can be used interchangeably. They share the same `.git-remote-files` manifest format.
 
 ## Commands
 
