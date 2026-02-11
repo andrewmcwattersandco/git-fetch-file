@@ -1004,7 +1004,7 @@ func isGlobPattern(path string) bool {
 func getTargetPathAndCacheKey(path, targetDir string, isGlob bool, forceType string) (string, string) {
 	relativePath := strings.TrimPrefix(path, "/")
 	gitRoot := getGitRoot()
-	
+
 	var targetPath string
 	var cacheKey string
 
@@ -1041,12 +1041,12 @@ func getTargetPathAndCacheKey(path, targetDir string, isGlob bool, forceType str
 		targetPath = relativePath
 		cacheKey = strings.ReplaceAll(relativePath, "/", "_")
 	}
-	
+
 	// Make targetPath absolute by resolving it relative to git root
 	if !filepath.IsAbs(targetPath) {
 		targetPath = filepath.Join(gitRoot, targetPath)
 	}
-	
+
 	return targetPath, cacheKey
 }
 
