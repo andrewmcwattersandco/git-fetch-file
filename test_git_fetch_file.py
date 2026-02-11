@@ -63,13 +63,15 @@ class TestPull(TestGitRepository):
         
         # Create subdirectory and change into it
         os.makedirs(".local/bin", exist_ok=True)
-        os.chdir(".local/bin")
-        
-        # Pull from subdirectory
-        subprocess.run(["git", "fetch-file", "pull"], check=True)
-        
-        # Change back to repo root
-        os.chdir(self.tmpdir)
+        original_dir = os.getcwd()
+        try:
+            os.chdir(".local/bin")
+            
+            # Pull from subdirectory
+            subprocess.run(["git", "fetch-file", "pull"], check=True)
+        finally:
+            # Always restore to original directory
+            os.chdir(original_dir)
         
         # Verify file is in correct location (relative to repo root)
         expected_path = os.path.join(self.tmpdir, ".local/bin/README")
