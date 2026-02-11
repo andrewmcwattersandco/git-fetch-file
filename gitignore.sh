@@ -11,3 +11,5 @@ done
 touch "$TMPDIR"/.gitignore
 grep -v '^\*.mod' .gitignore > "$TMPDIR"/.gitignore
 mv "$TMPDIR"/.gitignore .gitignore
+
+echo 'git-fetch-file' >> .gitignore
