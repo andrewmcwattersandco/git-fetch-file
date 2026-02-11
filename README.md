@@ -41,7 +41,9 @@ git config --global alias.fetch-file '!/path/to/git-fetch-file'
 
 The Go implementation is ~7x faster and has no runtime dependencies.
 
-### Option 2: Python Script (Git Alias)
+### Option 2: Python Script (Git Alias) - DEPRECATED
+
+> **⚠️ DEPRECATION NOTICE:** The Python implementation is deprecated. Please migrate to the Go binary for improved performance and continued updates.
 
 Save the Python script anywhere and set up a Git alias:
 
@@ -54,6 +56,8 @@ Then run it like this:
 ```sh
 git fetch-file <subcommand> [args...]
 ```
+
+> **Note:** Both versions remain compatible and share the same manifest format.
 
 ### Option 3: PATH Installation
 

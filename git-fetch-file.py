@@ -1673,6 +1673,11 @@ def main():
     
     args = parser.parse_args()
     
+    # Deprecation notice for Python implementation
+    print("\033[93m⚠ DEPRECATION NOTICE: The Python implementation is deprecated.", file=sys.stderr)
+    print("   Please migrate to the Go binary for improved performance and continued updates.", file=sys.stderr)
+    print("   Both versions remain compatible. See README.md for installation.\033[0m\n", file=sys.stderr)
+    
     if args.command == 'add':
         # Handle glob flag logic
         glob_flag = None

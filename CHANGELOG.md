@@ -9,13 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Go implementation**: Complete port of git-fetch-file to Go for significantly improved performance
-- **Go benchmarks**: Comprehensive benchmark suite comparing Python and Go implementations via CLI
 - **Native binary**: Compiled Go binary for faster execution without Python interpreter overhead
 
-### Performance
-- **Configuration parsing**: ~6.8x faster (Go: ~51ms vs Python: ~344ms per operation)
-- **Overall execution**: Measurably faster startup and execution times across all commands
-- **Memory efficiency**: Lower memory footprint with compiled binary
+### Deprecated
+- **Python implementation**: Now deprecated in favor of the Go version. Users are encouraged to migrate to the Go binary for improved performance and continued updates. The Python version remains compatible but will receive limited maintenance.
 
 ### Technical Details
 - Zero external dependencies - uses only Go standard library
@@ -29,7 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Both implementations can be used interchangeably
 
 ### Notes
-- Python implementation remains available and fully supported
+- Python implementation is deprecated but remains compatible for existing users
+- Users are encouraged to migrate to the Go binary for improved performance and continued updates
+- Python version will receive limited maintenance going forward
 - Benchmark results vary by system; run `go test -bench=.` to test on your hardware
 - Go binary requires Go 1.21 or later to build
 
