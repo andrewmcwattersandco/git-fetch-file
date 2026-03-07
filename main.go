@@ -88,7 +88,48 @@ func printUsage() {
 	fmt.Println("  remove    Remove a tracked file")
 }
 
+// reorderArgs moves flags before positional arguments for Go's flag package
+// Go's flag parser stops at the first non-flag argument, but users expect
+// to be able to write: cmd arg1 arg2 --flag value
+func reorderArgs(args []string, boolFlags map[string]bool) []string {
+	var flags []string
+	var positional []string
+	
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "-") {
+			flags = append(flags, arg)
+			
+			// Check if this flag takes a value
+			// Remove leading dashes to get flag name
+			flagName := strings.TrimLeft(arg, "-")
+			
+			// If it's a boolean flag, it doesn't take a value
+			if boolFlags[flagName] {
+				continue
+			}
+			
+			// Otherwise, the next arg is the flag value (if it doesn't start with -)
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+				flags = append(flags, args[i])
+			}
+		} else {
+			positional = append(positional, arg)
+		}
+	}
+	
+	return append(flags, positional...)
+}
+
 func handleAdd(args []string) {
+	// Reorder args so flags come before positional arguments
+	boolFlags := map[string]bool{
+		"dry-run": true, "force": true, "glob": true, "no-glob": true,
+		"is-file": true, "is-directory": true,
+	}
+	args = reorderArgs(args, boolFlags)
+	
 	fs := flag.NewFlagSet("add", flag.ExitOnError)
 	branch := fs.String("branch", "", "Track specific branch")
 	branchShort := fs.String("b", "", "Track specific branch (short)")
@@ -155,6 +196,13 @@ func handleAdd(args []string) {
 }
 
 func handlePull(args []string) {
+	// Reorder args so flags come before positional arguments
+	boolFlags := map[string]bool{
+		"force": true, "dry-run": true, "edit": true,
+		"no-commit": true, "commit": true, "save": true,
+	}
+	args = reorderArgs(args, boolFlags)
+	
 	fs := flag.NewFlagSet("pull", flag.ExitOnError)
 	force := fs.Bool("force", false, "Overwrite local changes")
 	dryRun := fs.Bool("dry-run", false, "Show what would be done")
@@ -192,6 +240,10 @@ func handleStatus() {
 }
 
 func handleRemove(args []string) {
+	// Reorder args so flags come before positional arguments
+	boolFlags := map[string]bool{"dry-run": true}
+	args = reorderArgs(args, boolFlags)
+	
 	fs := flag.NewFlagSet("remove", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Show what would be done")
 	repository := fs.String("repository", "", "Repository URL to disambiguate")

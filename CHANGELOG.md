@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-03-07
+
+### Fixed
+- **Flag parsing**: Fixed critical bug where flags placed after positional arguments (e.g., `add <repo> <path> --commit v1.0.0`) were ignored. The Go `flag` package stops parsing at the first non-flag argument, but users expect flexible flag positioning like in the Python version. Added automatic args reordering to maintain backward compatibility with existing command syntax.
+- Affects all commands with flags: `add`, `pull`, `remove`
+
+### Technical Details
+- Added `reorderArgs()` helper function that moves flags before positional arguments
+- Applied fix to `handleAdd()`, `handlePull()`, and `handleRemove()`
+- Maintains full backward compatibility - both flag-first and flag-last syntax now work
+
 ## [2.1.0] - 2026-03-07
 
 ### Fixed
