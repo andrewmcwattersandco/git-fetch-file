@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 const (
@@ -687,6 +689,166 @@ func statusFiles() {
 	}
 }
 
+// isMatchEverythingPattern checks if a glob pattern matches all files
+func isMatchEverythingPattern(pattern string) bool {
+	// Patterns that match everything in the repository
+	matchAll := []string{"**/*", "*", "**"}
+	for _, p := range matchAll {
+		if pattern == p {
+			return true
+		}
+	}
+	return false
+}
+
+// processBulkCopy performs a fast bulk copy of an entire directory tree
+func processBulkCopy(cloneDir string, entry *ConfigSection, force bool, commit, fetchedCommit string) FileResult {
+	gitRoot := getGitRoot()
+	targetDir := entry.Target
+	if targetDir == "" {
+		targetDir = entry.Path
+	}
+	
+	// Make target absolute
+	if !filepath.IsAbs(targetDir) {
+		targetDir = filepath.Join(gitRoot, targetDir)
+	}
+
+	// Check if target exists and has local changes
+	targetExists := false
+	if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
+		targetExists = true
+	}
+
+	// For bulk operations, we check if the target directory has uncommitted changes
+	hasLocalChanges := false
+	if targetExists && !force {
+		// Simple check: if target exists and we're not forcing, warn about potential overwrites
+		cmd := exec.Command("git", "diff", "--quiet", targetDir)
+		cmd.Dir = gitRoot
+		if err := cmd.Run(); err != nil {
+			hasLocalChanges = true
+		}
+	}
+
+	isBranchUpdate := fetchedCommit != entry.Commit
+	if hasLocalChanges && !force && !isBranchUpdate {
+		fmt.Printf("Skipping bulk copy to %s: local changes detected. Use --force to overwrite.\n", targetDir)
+		return FileResult{
+			Path:       entry.Path,
+			Repository: entry.RepoURL,
+			Commit:     entry.Commit,
+			Branch:     entry.Branch,
+			FetchedCommit: fetchedCommit,
+			FilesSkipped: 1,
+			Success:    true,
+		}
+	}
+
+	// Use cp -R for fast recursive copy (works on Unix-like systems)
+	// Exclude .git directory from the clone
+	fmt.Printf("Using bulk copy for %s -> %s\n", entry.Path, targetDir)
+	
+	// Ensure target parent directory exists
+	os.MkdirAll(filepath.Dir(targetDir), 0755)
+	
+	// Remove target if it exists (for clean copy)
+	if targetExists {
+		os.RemoveAll(targetDir)
+	}
+	
+	// Copy everything except .git
+	err := copyDirRecursive(cloneDir, targetDir, []string{".git"})
+	if err != nil {
+		return FileResult{
+			Path:       entry.Path,
+			Repository: entry.RepoURL,
+			Commit:     entry.Commit,
+			Branch:     entry.Branch,
+			Success:    false,
+			Error:      fmt.Sprintf("bulk copy failed: %v", err),
+		}
+	}
+
+	// Count files copied
+	fileCount := 0
+	filepath.Walk(targetDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			fileCount++
+		}
+		return nil
+	})
+
+	fmt.Printf("Bulk copied %d files from %s to %s at %s\n", fileCount, entry.RepoURL, targetDir, commit)
+
+	return FileResult{
+		Path:           entry.Path,
+		Repository:     entry.RepoURL,
+		Commit:         entry.Commit,
+		Branch:         entry.Branch,
+		FetchedCommit:  fetchedCommit,
+		FilesProcessed: fileCount,
+		FilesUpdated:   fileCount,
+		Success:        true,
+	}
+}
+
+// copyDirRecursive copies a directory recursively, excluding specified paths
+func copyDirRecursive(src, dst string, exclude []string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Get relative path
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+
+		// Check if this path should be excluded
+		for _, ex := range exclude {
+			if relPath == ex || strings.HasPrefix(relPath, ex+string(filepath.Separator)) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+
+		// Construct destination path
+		dstPath := filepath.Join(dst, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		// Copy file
+		return copyFile(path, dstPath, info.Mode())
+	})
+}
+
+// copyFile copies a single file with the specified permissions
+func copyFile(src, dst string, mode os.FileMode) error {
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	destination, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+
+	if _, err := io.Copy(destination, source); err != nil {
+		return err
+	}
+
+	return os.Chmod(dst, mode)
+}
+
 func fetchRepositoryGroup(repository, commit string, entries []*ConfigSection, force bool) []FileResult {
 	var results []FileResult
 
@@ -726,6 +888,14 @@ func fetchRepositoryGroup(repository, commit string, entries []*ConfigSection, f
 
 	for _, entry := range entries {
 		isGlob := entry.Glob == "true" || (entry.Glob == "" && isGlobPattern(entry.Path))
+		
+		// Fast path for "match everything" patterns
+		if isGlob && isMatchEverythingPattern(entry.Path) {
+			result := processBulkCopy(cloneDir, entry, force, commit, fetchedCommit)
+			results = append(results, result)
+			continue
+		}
+
 		files := []string{entry.Path}
 
 		if isGlob {
@@ -1200,7 +1370,7 @@ func getFilesFromGlob(cloneDir, pattern, repository string) ([]string, error) {
 	var files []string
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, line := range lines {
-		matched, _ := filepath.Match(pattern, line)
+		matched, _ := doublestar.Match(pattern, line)
 		if matched {
 			files = append(files, line)
 		}

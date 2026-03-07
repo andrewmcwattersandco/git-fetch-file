@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-03-07
+
+### Fixed
+- **Glob pattern matching**: Fixed support for `**` recursive glob patterns (e.g., `**/*`, `**/*.cpp`) by replacing `filepath.Match` with the `doublestar` library. The Go implementation now properly handles recursive directory matching like the Python version did.
+- **Pattern behavior**: `**/*` now correctly matches all files recursively in a repository, fixing issues where entire repositories couldn't be tracked.
+
+### Added
+- **Bulk copy optimization**: Added fast-path optimization for "match everything" patterns (`**/*`, `**`, `*`). When cloning an entire repository, git-fetch-file now uses efficient bulk directory copying instead of per-file operations, resulting in significantly faster performance for large repositories.
+- **Dependency**: Added `github.com/bmatcuk/doublestar/v4` for proper recursive glob pattern support.
+
+### Performance
+- Whole-repository tracking (e.g., `git fetch-file add <repo> "**/*" target/`) is now orders of magnitude faster due to bulk copy optimization
+- Patterns like `**/*.go` or `src/**/*` now work correctly with proper recursive matching
+
+### Technical Details
+- Replaced `filepath.Match()` with `doublestar.Match()` for glob pattern matching
+- Added `isMatchEverythingPattern()` to detect patterns that match entire repositories
+- Implemented `processBulkCopy()` with recursive directory walking for whole-repository operations
+- Added `copyDirRecursive()` helper that excludes `.git` directory and preserves file permissions
+
 ## [2.0.0] - 2026-02-10
 
 ### Added
