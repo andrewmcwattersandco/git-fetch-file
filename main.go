@@ -948,6 +948,14 @@ func fetchRepositoryGroup(repository, commit string, entries []*ConfigSection, f
 			continue
 		}
 
+		// If the path resolves to a directory in the clone, use bulk copy
+		sourcePathInClone := filepath.Join(cloneDir, entry.Path)
+		if info, statErr := os.Stat(sourcePathInClone); statErr == nil && info.IsDir() {
+			result := processBulkCopy(sourcePathInClone, entry, force, commit, fetchedCommit)
+			results = append(results, result)
+			continue
+		}
+
 		files := []string{entry.Path}
 
 		if isGlob {
