@@ -94,21 +94,21 @@ func printUsage() {
 func reorderArgs(args []string, boolFlags map[string]bool) []string {
 	var flags []string
 	var positional []string
-	
+
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if strings.HasPrefix(arg, "-") {
 			flags = append(flags, arg)
-			
+
 			// Check if this flag takes a value
 			// Remove leading dashes to get flag name
 			flagName := strings.TrimLeft(arg, "-")
-			
+
 			// If it's a boolean flag, it doesn't take a value
 			if boolFlags[flagName] {
 				continue
 			}
-			
+
 			// Otherwise, the next arg is the flag value (if it doesn't start with -)
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				i++
@@ -118,7 +118,7 @@ func reorderArgs(args []string, boolFlags map[string]bool) []string {
 			positional = append(positional, arg)
 		}
 	}
-	
+
 	return append(flags, positional...)
 }
 
@@ -129,7 +129,7 @@ func handleAdd(args []string) {
 		"is-file": true, "is-directory": true,
 	}
 	args = reorderArgs(args, boolFlags)
-	
+
 	fs := flag.NewFlagSet("add", flag.ExitOnError)
 	branch := fs.String("branch", "", "Track specific branch")
 	branchShort := fs.String("b", "", "Track specific branch (short)")
@@ -202,7 +202,7 @@ func handlePull(args []string) {
 		"no-commit": true, "commit": true, "save": true,
 	}
 	args = reorderArgs(args, boolFlags)
-	
+
 	fs := flag.NewFlagSet("pull", flag.ExitOnError)
 	force := fs.Bool("force", false, "Overwrite local changes")
 	dryRun := fs.Bool("dry-run", false, "Show what would be done")
@@ -243,7 +243,7 @@ func handleRemove(args []string) {
 	// Reorder args so flags come before positional arguments
 	boolFlags := map[string]bool{"dry-run": true}
 	args = reorderArgs(args, boolFlags)
-	
+
 	fs := flag.NewFlagSet("remove", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Show what would be done")
 	repository := fs.String("repository", "", "Repository URL to disambiguate")
@@ -760,7 +760,7 @@ func processBulkCopy(cloneDir string, entry *ConfigSection, force bool, commit, 
 	if targetDir == "" {
 		targetDir = entry.Path
 	}
-	
+
 	// Make target absolute
 	if !filepath.IsAbs(targetDir) {
 		targetDir = filepath.Join(gitRoot, targetDir)
@@ -800,15 +800,15 @@ func processBulkCopy(cloneDir string, entry *ConfigSection, force bool, commit, 
 	// Use cp -R for fast recursive copy (works on Unix-like systems)
 	// Exclude .git directory from the clone
 	fmt.Printf("Using bulk copy for %s -> %s\n", entry.Path, targetDir)
-	
+
 	// Ensure target parent directory exists
 	os.MkdirAll(filepath.Dir(targetDir), 0755)
-	
+
 	// Remove target if it exists (for clean copy)
 	if targetExists {
 		os.RemoveAll(targetDir)
 	}
-	
+
 	// Copy everything except .git
 	err := copyDirRecursive(cloneDir, targetDir, []string{".git"})
 	if err != nil {
@@ -940,7 +940,7 @@ func fetchRepositoryGroup(repository, commit string, entries []*ConfigSection, f
 
 	for _, entry := range entries {
 		isGlob := entry.Glob == "true" || (entry.Glob == "" && isGlobPattern(entry.Path))
-		
+
 		// Fast path for "match everything" patterns
 		if isGlob && isMatchEverythingPattern(entry.Path) {
 			result := processBulkCopy(cloneDir, entry, force, commit, fetchedCommit)
