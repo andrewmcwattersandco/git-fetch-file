@@ -787,13 +787,13 @@ func processBulkCopy(cloneDir string, entry *ConfigSection, force bool, commit, 
 	if hasLocalChanges && !force && !isBranchUpdate {
 		fmt.Printf("Skipping bulk copy to %s: local changes detected. Use --force to overwrite.\n", targetDir)
 		return FileResult{
-			Path:       entry.Path,
-			Repository: entry.RepoURL,
-			Commit:     entry.Commit,
-			Branch:     entry.Branch,
+			Path:          entry.Path,
+			Repository:    entry.RepoURL,
+			Commit:        entry.Commit,
+			Branch:        entry.Branch,
 			FetchedCommit: fetchedCommit,
-			FilesSkipped: 1,
-			Success:    true,
+			FilesSkipped:  1,
+			Success:       true,
 		}
 	}
 
