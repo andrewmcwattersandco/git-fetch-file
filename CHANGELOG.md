@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] - 2026-05-09
+
+### Fixed
+- **Directory path handling**: Fixed silent failure when a tracked path resolves to a directory in the remote repository. Previously, passing a directory path (e.g., `git fetch-file add <repo> assets/test_images`) would fall through to single-file copy logic and silently do nothing. The tool now detects directory paths at fetch time and routes them through the existing bulk copy logic, copying the full directory tree to the target.
+
 ## [2.1.1] - 2026-03-07
 
 ### Fixed
@@ -220,6 +225,7 @@ git fetch-file add https://github.com/user/repo.git file.txt myfile.txt
 ## [1.1.0] - Previous Release
 - Initial tracked version with core functionality
 
+[2.1.2]: https://github.com/andrewmcwatters/git-fetch-file/compare/v2.1.1...v2.1.2
 [1.4.4]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/andrewmcwatters/git-fetch-file/compare/v1.4.1...v1.4.2
